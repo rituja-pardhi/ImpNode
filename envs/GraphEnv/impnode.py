@@ -8,8 +8,7 @@ from gymnasium.core import ActType, ObsType
 from matplotlib import pyplot as plt
 from networkx import DiGraph
 
-from graph_env.spaces import GraphSpace
-
+from .spaces import GraphSpace
 
 class ImpnodeEnv(gym.Env):
 
@@ -28,7 +27,7 @@ class ImpnodeEnv(gym.Env):
         self.observation_space: Union[GraphSpace, None] = None
 
         self.setup()
-        self.render()
+        #self.render()
 
     def setup(self):
         self.graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, 10)
@@ -77,12 +76,12 @@ class ImpnodeEnv(gym.Env):
 
         self.graph.remove_node(node)
 
-        self.render()
+        #self.render()
 
         observation, info = self._get_obs()
         observation = copy.deepcopy(observation)
         reward = self._calculate_reward(nd_prev, cn_prev)
-        print(reward)
+
         terminated = self._is_terminated()
         truncated = False
         return observation, reward, terminated, truncated, info
