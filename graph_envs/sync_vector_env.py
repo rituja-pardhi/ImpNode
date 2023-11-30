@@ -2,6 +2,7 @@ from typing import Iterable, Callable, List, Optional, Union, Dict
 import gymnasium as gym
 import networkx as nx
 import numpy as np
+import time
 
 
 class GraphSyncVectorEnv:
@@ -29,12 +30,15 @@ class GraphSyncVectorEnv:
         truncated_arr = np.zeros(self.num_envs)
         terminal_arr = np.zeros(self.num_envs)
         info_list = []
+
         for index, a in enumerate(actions):
+
             observation, reward, terminated, truncated, info = self.envs[index].step(a)
             obs_list.append(observation)
             rew_arr[index] = reward
             terminal_arr[index] = terminated
             info_list.append(info)
+
         return obs_list, rew_arr, terminal_arr, truncated_arr, info_list
 
     def action_space(self, env_index):

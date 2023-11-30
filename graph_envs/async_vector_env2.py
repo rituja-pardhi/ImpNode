@@ -39,7 +39,7 @@ class GraphAsyncVectorEnv2:
 
         num_chunks = len(indices_chunks)
         # Create a multiprocessing pool with as many processes as self.num_envs
-        with Pool(processes=2) as pool:
+        with Pool(processes=5) as pool:
             results = pool.starmap(step_multiple_envs,
                                    [(indices_chunks[i], action_chunks[i], env_chunks[i]) for i in range(num_chunks)])
             for indices, obs, rewards, terminals, _, infos in results:
@@ -59,6 +59,7 @@ class GraphAsyncVectorEnv2:
 
     def num_nodes(self, env_index):
         return self.envs[env_index].num_nodes()
+
 
 def step_multiple_envs(indices, actions, envs):
     num_envs = len(envs)

@@ -3,6 +3,7 @@ from typing import Iterable, Callable, List, Optional, Union, Dict
 import gymnasium as gym
 import networkx as nx
 import numpy as np
+import time
 
 
 class GraphAsyncVectorEnv:
@@ -33,15 +34,16 @@ class GraphAsyncVectorEnv:
 
         # Create a multiprocessing pool with as many processes as self.num_envs
         with Pool() as pool:
+            start = time.time()
             results = pool.starmap(step_env, [(index, a, self.envs[index]) for index, a in enumerate(action)],
                                    chunksize=2)
 
             for index, observation, reward, terminated, truncated, info in results:
+
                 obs_list[index] = observation
                 rew_arr[index] = reward
                 terminal_arr[index] = terminated
                 info_list.append(info)
-
         return obs_list, rew_arr, terminal_arr, truncated_arr, info_list
 
     def action_space(self, env_index):

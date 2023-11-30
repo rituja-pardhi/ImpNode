@@ -10,9 +10,10 @@ from networkx import DiGraph
 
 from .spaces import GraphSpace
 
+
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, ba_nodes, ba_edges, max_removed_nodes):
+    def __init__(self, ba_nodes, ba_edges, max_removed_nodes, seed):
         self.nd_denominator = None
         self.cn_denominator = None
         self.graph = None
@@ -20,6 +21,7 @@ class ImpnodeEnv(gym.Env):
         self.ba_nodes = ba_nodes
         self.ba_edges = ba_edges
         self.removed_nodes = None
+        self.seed = seed
         self.pos = None
 
         self.max_removed_nodes = max_removed_nodes
@@ -27,10 +29,10 @@ class ImpnodeEnv(gym.Env):
         self.observation_space: Union[GraphSpace, None] = None
 
         self.setup()
-        #self.render()
+        # self.render()
 
     def setup(self):
-        self.graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, 10)
+        self.graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
         self.pos = nx.spring_layout(self.graph)
 
         # store denominator values according to original graph
@@ -55,7 +57,6 @@ class ImpnodeEnv(gym.Env):
         return self.graph, info
 
     def render(self):
-
         fig, ax = plt.subplots()
         fig.set_size_inches(3, 3)
         nx.draw(self.graph, self.pos, with_labels=True)
@@ -76,7 +77,7 @@ class ImpnodeEnv(gym.Env):
 
         self.graph.remove_node(node)
 
-        #self.render()
+        # self.render()
 
         observation, info = self._get_obs()
         observation = copy.deepcopy(observation)
@@ -90,7 +91,6 @@ class ImpnodeEnv(gym.Env):
         return len(self.removed_nodes) >= self.max_removed_nodes
 
     def _calculate_reward(self, nd_prev, cn_prev):
-
         Gcc_current = sorted(nx.connected_components(self.graph), key=len, reverse=True)
         gcc_current_lengths = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in Gcc_current]
         sum_gcc_current = sum(gcc_current_lengths)
