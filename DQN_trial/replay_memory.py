@@ -77,10 +77,12 @@ class ReplayMemory:
         """
 
         indices_to_sample = random.sample(range(len(self.buffer_state)), batch_size)
-
-        states = torch.from_numpy(np.array(self.buffer_state)[indices_to_sample]).float().to(device)
+        print(indices_to_sample)
+        #states = torch.from_numpy(np.array(self.buffer_state)[indices_to_sample]).float().to(device)
+        states = [self.buffer_state[index] for index in indices_to_sample]
         actions = torch.from_numpy(np.array(self.buffer_action)[indices_to_sample]).to(device)
-        next_states = torch.from_numpy(np.array(self.buffer_next_state)[indices_to_sample]).float().to(device)
+        #next_states = torch.from_numpy(np.array(self.buffer_next_state)[indices_to_sample]).float().to(device)
+        next_states = [self.buffer_next_state[index] for index in indices_to_sample]
         rewards = torch.from_numpy(np.array(self.buffer_reward)[indices_to_sample]).float().to(device)
         dones = torch.from_numpy(np.array(self.buffer_done)[indices_to_sample]).to(device)
 

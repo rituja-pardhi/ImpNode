@@ -1,4 +1,5 @@
-from typing import Tuple, Dict, Any, Union
+import time
+from typing import Tuple, Dict, Any, Union, Set
 
 import gymnasium as gym
 import networkx as nx
@@ -8,12 +9,15 @@ from gymnasium.core import ActType, ObsType
 from matplotlib import pyplot as plt
 from networkx import DiGraph
 
+import numpy as np
+
 from .spaces import GraphSpace
 
 
 class ImpnodeEnv(gym.Env):
 
     def __init__(self, ba_nodes, ba_edges, max_removed_nodes, seed):
+        self.edgelist = None
         self.nd_denominator = None
         self.cn_denominator = None
         self.graph = None
@@ -24,6 +28,8 @@ class ImpnodeEnv(gym.Env):
         self.seed = seed
         self.pos = None
 
+        self.mask = None
+
         self.max_removed_nodes = max_removed_nodes
 
         self.observation_space: Union[GraphSpace, None] = None
@@ -33,6 +39,7 @@ class ImpnodeEnv(gym.Env):
 
     def setup(self):
         self.graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
+        nx.set_node_attributes(self.graph, np.ones(5, dtype=int), 'features')
         self.pos = nx.spring_layout(self.graph)
 
         # store denominator values according to original graph
@@ -43,7 +50,10 @@ class ImpnodeEnv(gym.Env):
 
         self.action_space = gym.spaces.Discrete(self.num_nodes())
 
+        self.mask = np.ones((self.num_nodes()), dtype=np.int8)
+
         self.removed_nodes = []
+        self.edgelist = list(nx.to_edgelist(self.graph))
         obs, info = self._get_obs()
 
         return obs, info
@@ -51,7 +61,8 @@ class ImpnodeEnv(gym.Env):
     def num_nodes(self):
         return int(len(self.graph.nodes))
 
-    def _get_obs(self) -> Tuple[nx.DiGraph, Dict]:
+    def _get_obs(self) -> tuple[Any, dict[Any, Any]]:
+
         info = {
         }
         return self.graph, info
@@ -66,16 +77,18 @@ class ImpnodeEnv(gym.Env):
         assert not self._is_terminated(), "Env is terminated. Use reset()"
 
         node = action
-
+        self.mask[action] = 0
         self.removed_nodes.append(node)
 
         # prev_graph = copy.deepcopy(self.graph)
-        Gcc_prev = sorted(nx.connected_components(self.graph), key=len, reverse=True)
+        Gcc_prev = sorted(nx.connected_components(nx.Graph(self.edgelist)), key=len, reverse=True)
         gcc_prev_lengths = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in Gcc_prev]
         cn_prev = sum(gcc_prev_lengths)
         nd_prev = len(Gcc_prev[0])
 
-        self.graph.remove_node(node)
+        #self.graph.remove_node(node)
+        [self.graph.remove_edge(*i) for i in self.graph.edges if i[0] == node or i[1] == node]
+        [self.edgelist.remove(i) for i in self.edgelist if i[0] == node or i[1] == node]
 
         # self.render()
 
@@ -91,7 +104,7 @@ class ImpnodeEnv(gym.Env):
         return len(self.removed_nodes) >= self.max_removed_nodes
 
     def _calculate_reward(self, nd_prev, cn_prev):
-        Gcc_current = sorted(nx.connected_components(self.graph), key=len, reverse=True)
+        Gcc_current = sorted(nx.connected_components(nx.Graph(self.edgelist)), key=len, reverse=True)
         gcc_current_lengths = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in Gcc_current]
         sum_gcc_current = sum(gcc_current_lengths)
 
@@ -100,8 +113,12 @@ class ImpnodeEnv(gym.Env):
 
         return cn
 
-    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[
-        ObsType, dict[str, Any]]:
+    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[Any, Any]]:
         obs, info = self.setup()
         obs = copy.deepcopy(obs)
         return obs, info
+
+    def update_mask(self):
+        return self.mask
+
+

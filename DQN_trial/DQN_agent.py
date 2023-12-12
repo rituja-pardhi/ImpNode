@@ -102,12 +102,13 @@ class DQNAgent:
         if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
             return random.randrange(self.action_size)
 
-        if not torch.is_tensor(state):
-            state = torch.tensor([state], dtype=torch.float32).to(self.device)
+        #if not torch.is_tensor(state):
+        #    state = torch.tensor([state], dtype=torch.float32).to(self.device)
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
             action = self.policy_net.forward(state)
+        print(action.shape)
         return torch.argmax(action).item()  # since actions are discrete, return index that has highest Q
 
     def learn(self, batchsize):
