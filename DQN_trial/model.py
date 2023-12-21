@@ -41,8 +41,9 @@ class DQNNet(nn.Module):
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
-    def forward(self, graph):
-        x, edge_index = self.process_graph(graph)
+    def forward(self, data):
+        #x, edge_index = self.process_graph(data)
+        x, edge_index = data.features.to(torch.float32), data.edge_index
 
         x = F.relu(self.linear1(x))
         x = x / x.norm(dim=-1, keepdim=True)

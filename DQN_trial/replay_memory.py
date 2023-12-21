@@ -66,22 +66,19 @@ class ReplayMemory:
 
         Parameters
         ---
-        batchsize: int
+        batch_size: int
             Number of elements to randomly sample from the memory in each batch
         device: str
             Name of the device (cuda or cpu) on which the computations would be performed
 
         Returns
         ---
-        Tensors representing a batch of transitions sampled from the memory
+        Tensors and lists (for states) representing a batch of transitions sampled from the memory
         """
 
         indices_to_sample = random.sample(range(len(self.buffer_state)), batch_size)
-        print(indices_to_sample)
-        #states = torch.from_numpy(np.array(self.buffer_state)[indices_to_sample]).float().to(device)
         states = [self.buffer_state[index] for index in indices_to_sample]
         actions = torch.from_numpy(np.array(self.buffer_action)[indices_to_sample]).to(device)
-        #next_states = torch.from_numpy(np.array(self.buffer_next_state)[indices_to_sample]).float().to(device)
         next_states = [self.buffer_next_state[index] for index in indices_to_sample]
         rewards = torch.from_numpy(np.array(self.buffer_reward)[indices_to_sample]).float().to(device)
         dones = torch.from_numpy(np.array(self.buffer_done)[indices_to_sample]).to(device)

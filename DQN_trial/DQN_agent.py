@@ -7,6 +7,8 @@ import numpy as np
 
 import torch
 import torch.nn.functional as F
+import torch_geometric
+import torch_scatter
 
 from model import DQNNet
 from replay_memory import ReplayMemory
@@ -44,6 +46,7 @@ class DQNAgent:
         self.policy_net = DQNNet(self.state_size, self.action_size, lr).to(self.device)
         self.target_net = DQNNet(self.state_size, self.action_size, lr).to(self.device)
         self.target_net.eval()  # since no learning is performed on the target net
+
         if not train_mode:
             self.policy_net.eval()
 
@@ -102,13 +105,10 @@ class DQNAgent:
         if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
             return random.randrange(self.action_size)
 
-        #if not torch.is_tensor(state):
-        #    state = torch.tensor([state], dtype=torch.float32).to(self.device)
-
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
-            action = self.policy_net.forward(state)
-        print(action.shape)
+            pyg_state = torch_geometric.utils.from_networkx(state)
+            action = self.policy_net.forward(pyg_state)
         return torch.argmax(action).item()  # since actions are discrete, return index that has highest Q
 
     def learn(self, batchsize):
@@ -130,23 +130,29 @@ class DQNAgent:
             return
         states, actions, next_states, rewards, dones = self.memory.sample(batchsize, self.device)
 
-        # get q values of the actions that were taken, i.e calculate qpred;
+        # nx to pyg graph conversion for states
+        pyg_states = [torch_geometric.utils.from_networkx(state) for state in states]
+        batch_of_states = torch_geometric.data.Batch.from_data_list(pyg_states)
+
+        batch_index = batch_of_states.batch
+
+        # all q values from policy network and then get q values of the actions that were taken (as in memory)
         # actions vector has to be explicitly reshaped to nx1-vector
+        all_q_values_policy = self.policy_net.forward(batch_of_states).squeeze()
+        q_values_policy = self.batch_gather(all_q_values_policy, batch_index=batch_index, dim=1,
+                                            gather_index=actions.type(torch.int64).reshape(-1, 1)).squeeze()
 
-        q_pred = self.policy_net.forward(states)
+        pyg_next_states = [torch_geometric.utils.from_networkx(state) for state in next_states]
+        batch_of_next_states = torch_geometric.data.Batch.from_data_list(pyg_next_states)
 
-        q_pred = torch.gather(q_pred, 1, actions.view(-1, 1).long())
+        q_target = self.target_net.forward(batch_of_next_states)
+        values, argmax_indices = self.batch_max(q_target, batch_index)
+        target_max = values.squeeze()
+        td_target = rewards + self.discount * target_max * ~dones
 
-        # calculate target q-values, such that yj = rj + q(s', a'), but if current state is a terminal state, then yj = rj
-        q_target = self.target_net.forward(next_states).max(
-            dim=1).values  # because max returns data structure with values and indices
-        q_target[dones] = 0.0  # setting Q(s',a') to 0 when the current state is a terminal state
-        y_j = rewards + (self.discount * q_target)
-        y_j = y_j.view(-1, 1)
-
-        # calculate the loss as the mean-squared error of yj and qpred
+        # calculate the loss as the mean-squared error of td_target and q_values_policy
         self.policy_net.optimizer.zero_grad()
-        loss = F.mse_loss(y_j, q_pred).mean()
+        loss = F.mse_loss(td_target, q_values_policy)
         loss.backward()
         self.policy_net.optimizer.step()
 
@@ -182,13 +188,26 @@ class DQNAgent:
 
         self.policy_net.load_model(filename=filename, device=self.device)
 
+    def batch_max(self, ip, batch_index, dim=1):
+        dense_batch, mask = torch_geometric.utils.to_dense_batch(ip, batch_index, fill_value=float("-inf"))
+        max_values, argmax_indices = torch.max(dense_batch, dim=dim)
+        return max_values, argmax_indices
+
+    def batch_gather(self, ip, batch_index, dim, gather_index):
+        """
+        Gathers values from the input tensor along a specified dimension based on batch and gather indices.
+
+        Parameters:
+        - input (Tensor): The source tensor from which to gather values.
+        - batch_index (LongTensor): The indices that indicate which element of the input belongs to which graph.
+        - dim (int): The dimension along which to index.
+        - gather_index (LongTensor): The indices of elements to gather. It should have the same number of dimensions as input,
+          except for the specified dimension dim where the indices are taken.
+
+        Returns:
+        - Tensor: The gathered values.
 
 
-
-
-
-
-
-
-
-
+        """
+        dense_batch, mask = torch_geometric.utils.to_dense_batch(ip, batch_index)
+        return torch.gather(dense_batch, dim=dim, index=gather_index)
