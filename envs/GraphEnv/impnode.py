@@ -9,19 +9,19 @@ from gymnasium.core import ActType, ObsType
 from matplotlib import pyplot as plt
 from networkx import DiGraph
 import numpy as np
-
 from .spaces import GraphSpace
 
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, ba_nodes, ba_edges, max_removed_nodes, seed, render_option):
+    def __init__(self, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, train_mode):
 
         self.ba_nodes = ba_nodes
         self.ba_edges = ba_edges
         self.max_removed_nodes = max_removed_nodes
         self.seed = seed
         self.render_option = render_option
+        self.train_mode = train_mode
 
         self.graph = None
         self.edge_list = None
@@ -41,8 +41,7 @@ class ImpnodeEnv(gym.Env):
     def setup(self):
 
         # make barabasi albert graph and add vector of ones as node features with size 5
-        self.graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
-        nx.set_node_attributes(self.graph, np.ones(5, dtype=int), 'features')
+        self.graph = self.gen_graph(train_mode=self.train_mode)
         self.pos = nx.spring_layout(self.graph)
 
         # store denominator values according to original graph
@@ -119,3 +118,10 @@ class ImpnodeEnv(gym.Env):
         obs, info = self.setup()
         obs = copy.deepcopy(obs)
         return obs, info
+
+    def gen_graph(self, ep, train_mode=True):
+        graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
+        nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
+
+        return graph
+

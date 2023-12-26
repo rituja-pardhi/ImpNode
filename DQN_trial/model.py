@@ -7,6 +7,7 @@ import networkx as nx
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch_geometric
 from torch_geometric.nn import MessagePassing
 import torch.optim as optim
 
@@ -36,13 +37,12 @@ class DQNNet(nn.Module):
         self.linear3 = nn.Linear(output_size, output_size // 2)
         self.sum_agg = SumAgg()
 
-        self.dense1 = nn.Linear(output_size, output_size)
+        self.dense1 = nn.Linear(2*output_size, output_size)
         self.dense2 = nn.Linear(output_size, 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
-    def forward(self, data):
-        #x, edge_index = self.process_graph(data)
+    def forward(self, data, embedding=False):
         x, edge_index = data.features.to(torch.float32), data.edge_index
 
         x = F.relu(self.linear1(x))
@@ -53,7 +53,16 @@ class DQNNet(nn.Module):
 
             x = F.relu(torch.cat([self.linear2(x), self.linear3(neighbor_messages)], dim=-1))
             x = x / x.norm(dim=-1, keepdim=True)
+        if embedding:
+            return x
 
+        if len(data) == 3:
+            x = torch.cat((x[:-1],x[-1].repeat(len(x) - 1, 1)), dim=1)
+        else:
+            x = torch.cat([torch.cat((x[data.batch == i][:-1],x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i in range(data.num_graphs)])
+
+
+        # print(new_x.shape) 512*16
         x = F.relu(self.dense1(x))
         x = self.dense2(x)
 
@@ -94,8 +103,3 @@ class DQNNet(nn.Module):
         # map_location is required to ensure that a model that is trained on GPU can be run even on CPU
         self.load_state_dict(torch.load(filename, map_location=device))
 
-
-    def process_graph(self, graph):
-        x = torch.Tensor(list(nx.get_node_attributes(graph, "features").values()))
-        edge_index = torch.Tensor([list(e) for e in graph.edges]).long().T
-        return x, edge_index

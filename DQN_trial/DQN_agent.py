@@ -2,6 +2,7 @@
 Script that contains details how the DQN agent learns, updates the target network, selects actions and save/loads the model
 """
 
+import networkx as nx
 import random
 import numpy as np
 
@@ -9,6 +10,7 @@ import torch
 import torch.nn.functional as F
 import torch_geometric
 import torch_scatter
+from torch_geometric.utils import to_dense_adj
 
 from model import DQNNet
 from replay_memory import ReplayMemory
@@ -22,8 +24,8 @@ class DQNAgent:
     def __init__(self, device, state_size, action_size,
                  discount=0.99,
                  eps_max=1.0,
-                 eps_min=0.01,
-                 eps_decay=0.995,
+                 eps_min=0.05,
+                 eps_step=10000,
                  memory_capacity=5000,
                  lr=1e-3,
                  train_mode=True):
@@ -31,9 +33,10 @@ class DQNAgent:
         self.device = device
 
         # for epsilon-greedy exploration strategy
-        self.epsilon = eps_max
+        self.epsilon_max = eps_max
         self.epsilon_min = eps_min
-        self.epsilon_decay = eps_decay
+        self.epsilon_step = eps_step
+        self.epsilon = 1
 
         # for defining how far-sighted or myopic the agent should be
         self.discount = discount
@@ -81,7 +84,8 @@ class DQNAgent:
         none
         """
 
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        self.epsilon -= (self.epsilon_max - self.epsilon_min) / self.epsilon_step
+        self.epsilon = max(self.epsilon_min, self.epsilon)
 
     def select_action(self, state):
         """
@@ -107,7 +111,14 @@ class DQNAgent:
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
-            pyg_state = torch_geometric.utils.from_networkx(state)
+            new_state = state.to_directed()
+            new_node = len(new_state)
+            new_state.add_node(new_node)
+            # Add directed edges from the new node to all existing nodes
+            for node in state.nodes:
+                new_state.add_edge(new_node, node)
+            nx.set_node_attributes(new_state, {new_node: np.ones(5, dtype=int)}, name='features')
+            pyg_state = torch_geometric.utils.from_networkx(new_state)
             action = self.policy_net.forward(pyg_state)
         return torch.argmax(action).item()  # since actions are discrete, return index that has highest Q
 
@@ -129,30 +140,71 @@ class DQNAgent:
         if len(self.memory) < batchsize:
             return
         states, actions, next_states, rewards, dones = self.memory.sample(batchsize, self.device)
+        trial_pyg_states = [torch_geometric.utils.from_networkx(new_state) for new_state in states]
+
+        new_states = []
+        # add virtual node, it's edges and it's features for states
+        for state in states:
+            new_state = state.to_directed()
+            new_node = len(new_state)
+            new_state.add_node(new_node)
+            # Add directed edges from the new node to all existing nodes
+            for node in state.nodes:
+                new_state.add_edge(new_node, node)
+            nx.set_node_attributes(new_state, {new_node: np.ones(5, dtype=int)}, name='features')
+            new_states.append(new_state)
 
         # nx to pyg graph conversion for states
-        pyg_states = [torch_geometric.utils.from_networkx(state) for state in states]
+        pyg_states = [torch_geometric.utils.from_networkx(new_state) for new_state in new_states]
         batch_of_states = torch_geometric.data.Batch.from_data_list(pyg_states)
 
-        batch_index = batch_of_states.batch
+        adapted_batch_index = torch.cat(
+            [batch_of_states.batch[batch_of_states.batch == i][:-1] for i in range(batch_of_states.num_graphs)], dim=0)
 
         # all q values from policy network and then get q values of the actions that were taken (as in memory)
         # actions vector has to be explicitly reshaped to nx1-vector
         all_q_values_policy = self.policy_net.forward(batch_of_states).squeeze()
-        q_values_policy = self.batch_gather(all_q_values_policy, batch_index=batch_index, dim=1,
+        q_values_policy = self.batch_gather(all_q_values_policy, batch_index=adapted_batch_index, dim=1,
                                             gather_index=actions.type(torch.int64).reshape(-1, 1)).squeeze()
 
-        pyg_next_states = [torch_geometric.utils.from_networkx(state) for state in next_states]
+        # add virtual node, it's edges and it's features for next_states
+        new_next_states = []
+        # add virtual node, it's edges and it's features for states
+        for next_state in next_states:
+            new_next_state = next_state.to_directed()
+            new_node = len(new_next_state)
+            new_next_state.add_node(new_node)
+            # Add directed edges from the new node to all existing nodes
+            for node in next_state.nodes:
+                new_next_state.add_edge(new_node, node)
+            nx.set_node_attributes(new_next_state, {new_node: np.ones(5, dtype=int)}, name='features')
+            new_next_states.append(new_next_state)
+
+        pyg_next_states = [torch_geometric.utils.from_networkx(state) for state in new_next_states]
         batch_of_next_states = torch_geometric.data.Batch.from_data_list(pyg_next_states)
 
         q_target = self.target_net.forward(batch_of_next_states)
-        values, argmax_indices = self.batch_max(q_target, batch_index)
+        values, argmax_indices = self.batch_max(q_target, adapted_batch_index)
         target_max = values.squeeze()
         td_target = rewards + self.discount * target_max * ~dones
 
+        #
+        graph = nx.barabasi_albert_graph(8, 2, seed=1)
+        nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
+        graph = torch_geometric.utils.from_networkx(graph)
+        embedding = self.policy_net.forward(graph, embedding=True)
+        pairwise_distances = torch.cdist(embedding, embedding)
+
+        adjacency_matrix = to_dense_adj(graph.edge_index).squeeze(0)
+
+        loss_recon = torch.sum(torch.mul(adjacency_matrix, pairwise_distances))/2
+        print(loss_recon)
+
+
+
         # calculate the loss as the mean-squared error of td_target and q_values_policy
         self.policy_net.optimizer.zero_grad()
-        loss = F.mse_loss(td_target, q_values_policy)
+        loss = F.mse_loss(td_target, q_values_policy) + 0.01*loss_recon
         loss.backward()
         self.policy_net.optimizer.step()
 
