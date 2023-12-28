@@ -4,6 +4,7 @@ from typing import Tuple, Dict, Any, Union, Set
 import gymnasium as gym
 import networkx as nx
 import copy
+import random
 
 from gymnasium.core import ActType, ObsType
 from matplotlib import pyplot as plt
@@ -14,13 +15,14 @@ from .spaces import GraphSpace
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, train_mode):
+    def __init__(self, ba_edges, max_removed_nodes, seed, render_option, data, train_mode):
 
-        self.ba_nodes = ba_nodes
+        self.ba_nodes = 30 #random.randint(15, 25)*2
         self.ba_edges = ba_edges
         self.max_removed_nodes = max_removed_nodes
         self.seed = seed
         self.render_option = render_option
+        self.data = data
         self.train_mode = train_mode
 
         self.graph = None
@@ -38,10 +40,10 @@ class ImpnodeEnv(gym.Env):
         if self.render_option:
             self.render()
 
-    def setup(self):
+    def setup(self, ep=0):
 
         # make barabasi albert graph and add vector of ones as node features with size 5
-        self.graph = self.gen_graph(train_mode=self.train_mode)
+        self.graph = self.gen_graph(ep)
         self.pos = nx.spring_layout(self.graph)
 
         # store denominator values according to original graph
@@ -111,17 +113,22 @@ class ImpnodeEnv(gym.Env):
 
         nd = (nd_prev - len(Gcc_current[0])) / self.nd_denominator
         cn = (cn_prev - sum_gcc_current) / self.cn_denominator
-
+        if not self.train_mode:
+            return sum_gcc_current / self.cn_denominator
         return cn
 
-    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[Any, Any]]:
-        obs, info = self.setup()
+    def reset(self, ep=0, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[
+        Any, dict[Any, Any]]:
+        obs, info = self.setup(ep)
         obs = copy.deepcopy(obs)
         return obs, info
 
-    def gen_graph(self, ep, train_mode=True):
+    def gen_graph(self, ep):
         graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
+
+        if self.data:
+            graph = nx.read_gml("C:/Users/rituja.pardhi/Thesis/ma-rituja-pardhi/DQN_trial/data/synthetic/uniform_cost"
+                                "/30-50/g_{}".format(ep))
+
         nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
-
         return graph
-

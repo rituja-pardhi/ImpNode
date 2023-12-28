@@ -198,13 +198,10 @@ class DQNAgent:
         adjacency_matrix = to_dense_adj(graph.edge_index).squeeze(0)
 
         loss_recon = torch.sum(torch.mul(adjacency_matrix, pairwise_distances))/2
-        print(loss_recon)
-
-
 
         # calculate the loss as the mean-squared error of td_target and q_values_policy
         self.policy_net.optimizer.zero_grad()
-        loss = F.mse_loss(td_target, q_values_policy) + 0.01*loss_recon
+        loss = F.mse_loss(td_target, q_values_policy) #+ 0.001*loss_recon
         loss.backward()
         self.policy_net.optimizer.step()
 

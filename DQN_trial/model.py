@@ -37,8 +37,8 @@ class DQNNet(nn.Module):
         self.linear3 = nn.Linear(output_size, output_size // 2)
         self.sum_agg = SumAgg()
 
-        self.dense1 = nn.Linear(2*output_size, output_size)
-        self.dense2 = nn.Linear(output_size, 1)
+        self.dense1 = nn.Linear(2 * output_size, 128)
+        self.dense2 = nn.Linear(128, 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
@@ -48,7 +48,7 @@ class DQNNet(nn.Module):
         x = F.relu(self.linear1(x))
         x = x / x.norm(dim=-1, keepdim=True)
 
-        for _ in range(2):
+        for _ in range(4):
             neighbor_messages = self.sum_agg(x, edge_index)
 
             x = F.relu(torch.cat([self.linear2(x), self.linear3(neighbor_messages)], dim=-1))
@@ -57,12 +57,12 @@ class DQNNet(nn.Module):
             return x
 
         if len(data) == 3:
-            x = torch.cat((x[:-1],x[-1].repeat(len(x) - 1, 1)), dim=1)
+            x = torch.cat((x[:-1], x[-1].repeat(len(x) - 1, 1)), dim=1)
         else:
-            x = torch.cat([torch.cat((x[data.batch == i][:-1],x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i in range(data.num_graphs)])
+            x = torch.cat([torch.cat(
+                (x[data.batch == i][:-1], x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i
+                           in range(data.num_graphs)])
 
-
-        # print(new_x.shape) 512*16
         x = F.relu(self.dense1(x))
         x = self.dense2(x)
 
@@ -99,7 +99,10 @@ class DQNNet(nn.Module):
         ---
         none
         """
-
+        current_model_dict = self.state_dict()
+        loaded_state_dict = torch.load(filename, map_location=device)
+        new_state_dict = {k: v if v.size() == current_model_dict[k].size() else current_model_dict[k] for k, v in
+                          zip(current_model_dict.keys(), loaded_state_dict.values())}
+        self.load_state_dict(new_state_dict, strict=False)
         # map_location is required to ensure that a model that is trained on GPU can be run even on CPU
-        self.load_state_dict(torch.load(filename, map_location=device))
-
+        # self.load_state_dict(torch.load(filename, map_location=device), strict=False)
