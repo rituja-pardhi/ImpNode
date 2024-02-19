@@ -15,25 +15,27 @@ from .spaces import GraphSpace
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, ba_edges, max_removed_nodes, seed, render_option, data, train_mode):
+    def __init__(self, anc, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, data, data_path, train_mode):
 
-        self.ba_nodes = 30 #random.randint(15, 25)*2
+        self.anc = anc
+        self.ba_nodes = ba_nodes
         self.ba_edges = ba_edges
         self.max_removed_nodes = max_removed_nodes
         self.seed = seed
         self.render_option = render_option
         self.data = data
+        self.data_path = data_path
         self.train_mode = train_mode
 
         self.graph = None
-        self.edge_list = None
         self.removed_nodes = None
         self.pos = None
+        self.degree_weight = None
+        self.random_weight = None
         self.node_action_mask = None
-        self.observation_space: Union[GraphSpace, None] = None
+        self.graph_len = None
 
-        self.nd_denominator = None
-        self.cn_denominator = None
+        self.observation_space: Union[GraphSpace, None] = None
 
         self.setup()
 
@@ -46,9 +48,10 @@ class ImpnodeEnv(gym.Env):
         self.graph = self.gen_graph(ep)
         self.pos = nx.spring_layout(self.graph)
 
-        # store denominator values according to original graph
-        self.nd_denominator = int(len(self.graph.nodes))
-        self.cn_denominator = (int(len(self.graph.nodes)) * (int(len(self.graph.nodes)) - 1)) / 2
+        self.graph_len = len(self.graph.nodes)
+
+        self.degree_weight = self.normalized_degrees()
+        self.random_weight = self.calculate_cost()
 
         self.observation_space = GraphSpace(num_nodes=int(len(self.graph.nodes)))
         self.action_space = gym.spaces.Discrete(int(len(self.graph.nodes)))
@@ -57,10 +60,25 @@ class ImpnodeEnv(gym.Env):
         self.node_action_mask = np.ones((int(len(self.graph.nodes))), dtype=np.int8)
 
         self.removed_nodes = []
-        self.edge_list = list(nx.to_edgelist(self.graph))
+
         obs, info = self._get_obs()
 
         return obs, info
+
+    def normalized_degrees(self):
+        degrees = dict(self.graph.degree())
+        total_degree = sum(degrees.values())
+
+        normalized_degrees = {int(node): degree / total_degree for node, degree in degrees.items()}
+
+        return normalized_degrees
+
+    def calculate_cost(self):
+        delta = np.random.normal(0, 1)  # Random variable drawn from a normal distribution
+        median_degree = np.median(list(self.degree_weight.values()))
+        err = median_degree * delta
+        cost = {int(node): 0.5 * (degree + err) for node, degree in self.degree_weight.items()}
+        return cost
 
     def _get_obs(self) -> tuple[Any, dict[Any, Any]]:
         info = {
@@ -72,6 +90,7 @@ class ImpnodeEnv(gym.Env):
         # TODO remove node as well.. currently only edges removed
         fig, ax = plt.subplots()
         fig.set_size_inches(3, 3)
+
         nx.draw(self.graph, self.pos, with_labels=True)
         return fig
 
@@ -79,43 +98,38 @@ class ImpnodeEnv(gym.Env):
         assert not self._is_terminated(), "Env is terminated. Use reset()"
 
         node = action
+
         self.node_action_mask[action] = 0
         self.removed_nodes.append(node)
 
-        # reward calculation requires cn and nd of graph before removing the node (prev)
-        Gcc_prev = sorted(nx.connected_components(nx.Graph(self.edge_list)), key=len, reverse=True)
-        gcc_prev_lengths = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in Gcc_prev]
-        cn_prev = sum(gcc_prev_lengths)
-        nd_prev = len(Gcc_prev[0])
-
-        # remove edges from graph and edge list
-        [self.graph.remove_edge(*i) for i in self.graph.edges if i[0] == node or i[1] == node]
-        [self.edge_list.remove(i) for i in self.edge_list if i[0] == node or i[1] == node]
+        # remove edges from graph
+        [self.graph.remove_edge(*i) for i in self.graph.edges if int(i[0]) == int(node) or int(i[1]) == int(node)]
 
         if self.render_option:
             self.render()
 
         observation, info = self._get_obs()
         observation = copy.deepcopy(observation)
-        reward = self._calculate_reward(nd_prev, cn_prev)
+        reward = self._calculate_reward()
 
         terminated = self._is_terminated()
         truncated = False
         return observation, reward, terminated, truncated, info
 
     def _is_terminated(self):
-        return len(self.removed_nodes) >= self.max_removed_nodes
+        # if len(self.graph.edges) == 0:
+        #     print('Graph is fully disconnected')
+        return len(self.removed_nodes) >= self.max_removed_nodes or len(self.graph.edges) == 0
 
-    def _calculate_reward(self, nd_prev, cn_prev):
-        Gcc_current = sorted(nx.connected_components(nx.Graph(self.edge_list)), key=len, reverse=True)
-        gcc_current_lengths = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in Gcc_current]
-        sum_gcc_current = sum(gcc_current_lengths)
+        #return len(self.graph.edges) == 0
 
-        nd = (nd_prev - len(Gcc_current[0])) / self.nd_denominator
-        cn = (cn_prev - sum_gcc_current) / self.cn_denominator
+    def _calculate_reward(self):
+
         if not self.train_mode:
-            return sum_gcc_current / self.cn_denominator
-        return cn
+            return self.connectivity()
+
+        anc = -self.connectivity()
+        return anc
 
     def reset(self, ep=0, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[
         Any, dict[Any, Any]]:
@@ -124,11 +138,46 @@ class ImpnodeEnv(gym.Env):
         return obs, info
 
     def gen_graph(self, ep):
-        graph = nx.barabasi_albert_graph(self.ba_nodes, self.ba_edges, self.seed)
+        # graph = nx.barabasi_albert_graph(random.randint(*self.ba_nodes) * 2, self.ba_edges, self.seed)
 
+        file_name = f"g_{ep}.gml"
         if self.data:
-            graph = nx.read_gml("C:/Users/rituja.pardhi/Thesis/ma-rituja-pardhi/DQN_trial/data/synthetic/uniform_cost"
-                                "/30-50/g_{}".format(ep))
+            graph = nx.read_gml(self.data_path / file_name)
 
         nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
         return graph
+
+    def connectivity(self):
+
+        GCC = sorted(nx.connected_components(self.graph), key=len, reverse=True)
+
+        if self.anc == 'cn':
+            denominator = ((self.graph_len * (self.graph_len - 1)) / 2) * self.graph_len
+            cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
+            return sum(cn) / denominator
+
+        elif self.anc == 'dw_cn':
+            denominator = (self.graph_len * (self.graph_len - 1)) / 2
+            weight = self.degree_weight[self.removed_nodes[-1]]
+            cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
+            return (sum(cn) * weight) / denominator
+
+        elif self.anc == 'rw_cn':
+            denominator = (self.graph_len * (self.graph_len - 1)) / 2
+            weight = self.random_weight[self.removed_nodes[-1]]
+            cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
+            return (sum(cn) * weight) / denominator
+
+        elif self.anc == 'nd':
+            denominator = self.graph_len * self.graph_len
+            return len(GCC[0]) / denominator
+
+        elif self.anc == 'dw_nd':
+            denominator = self.graph_len
+            weight = self.degree_weight[int(self.removed_nodes[-1])]
+            return (len(GCC[0]) * weight) / denominator
+
+        else:
+            denominator = self.graph_len
+            weight = self.random_weight[self.removed_nodes[-1]]
+            return (len(GCC[0]) * weight) / denominator

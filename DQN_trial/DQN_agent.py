@@ -9,11 +9,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch_geometric
-import torch_scatter
 from torch_geometric.utils import to_dense_adj
 
 from model import DQNNet
 from replay_memory import ReplayMemory
+
+import torch.optim as optim
 
 
 class DQNAgent:
@@ -22,21 +23,21 @@ class DQNAgent:
     """
 
     def __init__(self, device, state_size, action_size,
-                 discount=0.99,
-                 eps_max=1.0,
-                 eps_min=0.05,
-                 eps_step=10000,
-                 memory_capacity=5000,
-                 lr=1e-3,
-                 train_mode=True):
+                 discount,
+                 eps_max,
+                 eps_min,
+                 eps_step,
+                 memory_capacity,
+                 lr,
+                 train_mode):
 
         self.device = device
 
         # for epsilon-greedy exploration strategy
-        self.epsilon_max = eps_max
         self.epsilon_min = eps_min
         self.epsilon_step = eps_step
-        self.epsilon = 1
+        self.epsilon = eps_max
+        self.epsilon_max = eps_max
 
         # for defining how far-sighted or myopic the agent should be
         self.discount = discount
@@ -49,6 +50,8 @@ class DQNAgent:
         self.policy_net = DQNNet(self.state_size, self.action_size, lr).to(self.device)
         self.target_net = DQNNet(self.state_size, self.action_size, lr).to(self.device)
         self.target_net.eval()  # since no learning is performed on the target net
+
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
 
         if not train_mode:
             self.policy_net.eval()
@@ -87,7 +90,7 @@ class DQNAgent:
         self.epsilon -= (self.epsilon_max - self.epsilon_min) / self.epsilon_step
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-    def select_action(self, state):
+    def select_action(self, state, mask):
         """
         Uses epsilon-greedy exploration such that, if the randomly generated number is less than epsilon then the agent performs random action, else the agent executes the action suggested by the policy Q-network
         """
@@ -101,13 +104,17 @@ class DQNAgent:
         state: vector or tensor
             The current state of the environment as observed by the agent
 
+        mask: vector of valid nodes (not already removed)
         Returns
         ---
         none
         """
 
         if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
-            return random.randrange(self.action_size)
+            valid_actions = np.nonzero(mask)[0]
+            a = int(np.random.choice(valid_actions, 1))
+            return a
+            # return random.randrange(self.action_size)
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
@@ -117,10 +124,13 @@ class DQNAgent:
             # Add directed edges from the new node to all existing nodes
             for node in state.nodes:
                 new_state.add_edge(new_node, node)
+
             nx.set_node_attributes(new_state, {new_node: np.ones(5, dtype=int)}, name='features')
             pyg_state = torch_geometric.utils.from_networkx(new_state)
-            action = self.policy_net.forward(pyg_state)
-        return torch.argmax(action).item()  # since actions are discrete, return index that has highest Q
+            action = self.policy_net.forward(pyg_state).squeeze(1)
+            action = torch.mul(action, torch.tensor(mask))  # disable invalid nodes
+            a = torch.argmax(action).item()
+        return a  # since actions are discrete, return index that has highest Q
 
     def learn(self, batchsize):
         """
@@ -140,7 +150,6 @@ class DQNAgent:
         if len(self.memory) < batchsize:
             return
         states, actions, next_states, rewards, dones = self.memory.sample(batchsize, self.device)
-        trial_pyg_states = [torch_geometric.utils.from_networkx(new_state) for new_state in states]
 
         new_states = []
         # add virtual node, it's edges and it's features for states
@@ -183,27 +192,31 @@ class DQNAgent:
         pyg_next_states = [torch_geometric.utils.from_networkx(state) for state in new_next_states]
         batch_of_next_states = torch_geometric.data.Batch.from_data_list(pyg_next_states)
 
-        q_target = self.target_net.forward(batch_of_next_states)
+        with torch.no_grad():
+            q_target = self.target_net.forward(batch_of_next_states)
+
         values, argmax_indices = self.batch_max(q_target, adapted_batch_index)
         target_max = values.squeeze()
         td_target = rewards + self.discount * target_max * ~dones
 
+        # graph reconstruction loss
+        # graph = nx.barabasi_albert_graph(8, 2, seed=1)
+        # nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
+        # graph = torch_geometric.utils.from_networkx(graph)
+        # embedding = self.policy_net.forward(graph, embedding=True)
+        # pairwise_distances = torch.cdist(embedding, embedding)
         #
-        graph = nx.barabasi_albert_graph(8, 2, seed=1)
-        nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
-        graph = torch_geometric.utils.from_networkx(graph)
-        embedding = self.policy_net.forward(graph, embedding=True)
-        pairwise_distances = torch.cdist(embedding, embedding)
+        # adjacency_matrix = to_dense_adj(graph.edge_index).squeeze(0)
 
-        adjacency_matrix = to_dense_adj(graph.edge_index).squeeze(0)
-
-        loss_recon = torch.sum(torch.mul(adjacency_matrix, pairwise_distances))/2
+        # loss_recon = torch.sum(torch.mul(adjacency_matrix, pairwise_distances)) / 2
 
         # calculate the loss as the mean-squared error of td_target and q_values_policy
-        self.policy_net.optimizer.zero_grad()
-        loss = F.mse_loss(td_target, q_values_policy) #+ 0.001*loss_recon
+        # self.policy_net.optimizer.zero_grad()
+        self.optimizer.zero_grad()
+        loss = F.mse_loss(td_target, q_values_policy)  # + 0.001*loss_recon
         loss.backward()
-        self.policy_net.optimizer.step()
+        # self.policy_net.optimizer.step()
+        self.optimizer.step()
 
     def save_model(self, filename):
         """

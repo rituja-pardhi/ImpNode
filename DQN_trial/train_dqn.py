@@ -4,11 +4,11 @@ import numpy as np
 import pickle
 from livelossplot import PlotLosses
 from collections import deque
+import networkx as nx
 
 import torch
 import DQN_agent
 from envs.GraphEnv.impnode import ImpnodeEnv
-
 
 
 # to initialize the replay buffer with some random interactions
@@ -88,22 +88,24 @@ def train_loop(env, agent, results_basepath):
         pickle.dump(epsilon_history, f)
 
 
+
+
 if __name__ == "__main__":
     import sys
 
-    #sys.path.append('C:/Users/rituja.pardhi/Thesis/ma-rituja-pardhi/envs/GraphEnv')
+    # sys.path.append('C:/Users/rituja.pardhi/Thesis/ma-rituja-pardhi/envs/GraphEnv')
     print(sys.path)
     print("Current working directory:", os.getcwd())
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # variables for training the agent
 
-    NUM_TRAIN_EPS = 10  # 1000 number training episodes to run
+    NUM_TRAIN_EPS = 100000  # 1000 number training episodes to run
     NUM_MEM_FILL_EPS = 1  # 10 number of episodes to run to initialize the memory
 
     DISCOUNT = 0.99  # gamma used for computing return
 
     BATCHSIZE = 64  # number of transitions to sample from replay buffer for each learn step
-    MEMORY_CAPACITY = 64 # size of the memory buffer
+    MEMORY_CAPACITY = 64  # size of the memory buffer
     UPDATE_FREQUENCY = 10  # number of interactions after which the target buffer is updated
 
     EPS_MAX = 1.0  # initial epsilon value
