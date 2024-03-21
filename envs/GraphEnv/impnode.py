@@ -1,21 +1,21 @@
-import time
-from typing import Tuple, Dict, Any, Union, Set
+import random
+from typing import Any, Union
 
 import gymnasium as gym
 import networkx as nx
 import copy
-import random
 
-from gymnasium.core import ActType, ObsType
+from gymnasium.core import ActType
 from matplotlib import pyplot as plt
 from networkx import DiGraph
 import numpy as np
-from .spaces import GraphSpace
+from envs.spaces import GraphSpace
 
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, anc, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, data, data_path, train_mode):
+    def __init__(self, anc, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, train_mode, data_path=None,
+                 file_name=None):
 
         self.anc = anc
         self.ba_nodes = ba_nodes
@@ -23,8 +23,8 @@ class ImpnodeEnv(gym.Env):
         self.max_removed_nodes = max_removed_nodes
         self.seed = seed
         self.render_option = render_option
-        self.data = data
         self.data_path = data_path
+        self.file_name = file_name
         self.train_mode = train_mode
 
         self.graph = None
@@ -36,6 +36,7 @@ class ImpnodeEnv(gym.Env):
         self.graph_len = None
 
         self.observation_space: Union[GraphSpace, None] = None
+        self.action_space = None
 
         self.setup()
 
@@ -133,16 +134,20 @@ class ImpnodeEnv(gym.Env):
 
     def reset(self, ep=0, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[
         Any, dict[Any, Any]]:
+
         obs, info = self.setup(ep)
         obs = copy.deepcopy(obs)
         return obs, info
 
     def gen_graph(self, ep):
-        # graph = nx.barabasi_albert_graph(random.randint(*self.ba_nodes) * 2, self.ba_edges, self.seed)
+        graph = nx.barabasi_albert_graph(random.randint(*self.ba_nodes) * 2, self.ba_edges, self.seed)
 
-        file_name = f"g_{ep}.gml"
-        if self.data:
-            graph = nx.read_gml(self.data_path / file_name)
+        if self.data_path:
+            if not self.file_name:
+                file_name = f"g_{ep}.gml"
+                graph = nx.read_gml(self.data_path / file_name)
+            else:
+                graph = nx.read_gml(self.data_path / self.file_name)
 
         nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
         return graph
