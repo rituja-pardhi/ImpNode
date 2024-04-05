@@ -14,7 +14,7 @@ from envs.spaces import GraphSpace
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, anc, ba_nodes, ba_edges, max_removed_nodes, seed, render_option, train_mode, data_path=None,
+    def __init__(self, anc, ba_nodes, ba_edges, seed, render_option, mode, max_removed_nodes=None, data_path=None,
                  file_name=None):
 
         self.anc = anc
@@ -25,7 +25,7 @@ class ImpnodeEnv(gym.Env):
         self.render_option = render_option
         self.data_path = data_path
         self.file_name = file_name
-        self.train_mode = train_mode
+        self.mode = mode
 
         self.graph = None
         self.removed_nodes = None
@@ -47,13 +47,14 @@ class ImpnodeEnv(gym.Env):
 
         # make barabasi albert graph and add vector of ones as node features with size 5
         self.graph = self.gen_graph(ep)
+        self.degree_weight = self.normalized_degrees()
+
+        self.random_weight = self.calculate_cost()
+        self.graph = self.add_attributes()
+        self.total_deg_weight = sum(self.degree_weight.values())
         self.pos = nx.spring_layout(self.graph)
 
         self.graph_len = len(self.graph.nodes)
-
-        self.degree_weight = self.normalized_degrees()
-        self.random_weight = self.calculate_cost()
-
         self.observation_space = GraphSpace(num_nodes=int(len(self.graph.nodes)))
         self.action_space = gym.spaces.Discrete(int(len(self.graph.nodes)))
 
@@ -67,9 +68,10 @@ class ImpnodeEnv(gym.Env):
         return obs, info
 
     def normalized_degrees(self):
-        degrees = dict(self.graph.degree())
-        total_degree = sum(degrees.values())
 
+        degrees = dict(self.graph.degree())
+        # total_degree = sum(degrees.values())
+        total_degree = max(degrees.values())
         normalized_degrees = {int(node): degree / total_degree for node, degree in degrees.items()}
 
         return normalized_degrees
@@ -120,13 +122,14 @@ class ImpnodeEnv(gym.Env):
     def _is_terminated(self):
         # if len(self.graph.edges) == 0:
         #     print('Graph is fully disconnected')
-        return len(self.removed_nodes) >= self.max_removed_nodes or len(self.graph.edges) == 0
-
-        #return len(self.graph.edges) == 0
+        if self.max_removed_nodes:
+            return len(self.removed_nodes) >= self.max_removed_nodes or len(self.graph.edges) == 0
+        else:
+            return len(self.graph.edges) == 0
 
     def _calculate_reward(self):
 
-        if not self.train_mode:
+        if self.mode == 'test':
             return self.connectivity()
 
         anc = -self.connectivity()
@@ -140,17 +143,27 @@ class ImpnodeEnv(gym.Env):
         return obs, info
 
     def gen_graph(self, ep):
-        graph = nx.barabasi_albert_graph(random.randint(*self.ba_nodes) * 2, self.ba_edges, self.seed)
-
         if self.data_path:
             if not self.file_name:
-                file_name = f"g_{ep}.gml"
+                file_name = f"g_{ep}"
                 graph = nx.read_gml(self.data_path / file_name)
             else:
                 graph = nx.read_gml(self.data_path / self.file_name)
 
-        nx.set_node_attributes(graph, np.ones(5, dtype=int), 'features')
+            mapping = {node: int(node) for i, node in enumerate(graph.nodes())}
+            graph = nx.relabel_nodes(graph, mapping)
+        else:
+            graph = nx.barabasi_albert_graph(random.randint(*self.ba_nodes), self.ba_edges, self.seed)
+
         return graph
+
+    def add_attributes(self):
+
+        nx.set_node_attributes(self.graph, self.degree_weight, 'weight')
+
+        nx.set_node_attributes(self.graph, 1, 'features')
+
+        return self.graph
 
     def connectivity(self):
 
@@ -179,7 +192,7 @@ class ImpnodeEnv(gym.Env):
 
         elif self.anc == 'dw_nd':
             denominator = self.graph_len
-            weight = self.degree_weight[int(self.removed_nodes[-1])]
+            weight = self.degree_weight[int(self.removed_nodes[-1])] / self.total_deg_weight
             return (len(GCC[0]) * weight) / denominator
 
         else:

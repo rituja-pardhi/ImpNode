@@ -31,7 +31,7 @@ def hda(anc, NUM_TEST_EPS, max_removed_nodes, data_path, file_name= None):
         if file_name is not None:
             graph = nx.read_gml(str(data_path) + '/' + str(file_name))
         else:
-            graph = nx.read_gml(str(data_path) + "/g_{}.gml".format(i))
+            graph = nx.read_gml(str(data_path) + "/g_{}".format(i))
         # graph = nx.read_gml(str(data_path) + "/Crime_degree.gml".format(i))
         # wt = nx.get_node_attributes(graph, "weight")
         # wt = {node: val / sum(wt.values()) for node, val in wt.items()}

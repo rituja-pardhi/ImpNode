@@ -20,10 +20,12 @@ class DQNAgent:
     """
     Class that defines the functions required for training the DQN agent
     """
-    def __init__(self, device, gnn_depth, state_size, hidden_size1, hidden_size2, action_size,
-                 discount, eps_max, eps_min, eps_step, memory_capacity, lr, train_mode):
+
+    def __init__(self, device, alpha, gnn_depth, state_size, hidden_size1, hidden_size2, action_size,
+                 discount, eps_max, eps_min, eps_step, memory_capacity, lr, mode):
 
         self.device = device
+        self.alpha = alpha
 
         # for epsilon-greedy exploration strategy
         self.epsilon_min = eps_min
@@ -34,6 +36,7 @@ class DQNAgent:
 
         # for defining how far-sighted or myopic the agent should be
         self.discount = discount
+        self.mode = mode
 
         # size of the state vectors and number of possible actions
         self.state_size = state_size
@@ -42,13 +45,28 @@ class DQNAgent:
         self.action_size = action_size
 
         # instances of the network for current policy and its target
-        self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2, self.action_size, lr).to(self.device)
-        self.target_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2, self.action_size, lr).to(self.device)
+        self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
+                                 self.action_size, lr).to(self.device)
+        self.target_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
+                                 self.action_size, lr).to(self.device)
+
+        if self.mode == "finetune":
+            for name, child in self.policy_net.named_children():
+                if name in ['linear5','linear4','dense1','dense2']:
+                    print(name + ' is unfrozen')
+                    for param in child.parameters():
+                        param.requires_grad = True
+                else:
+                    print(name + ' is frozen')
+                    for param in child.parameters():
+                        param.requires_grad = False
+
         self.target_net.eval()  # since no learning is performed on the target net
 
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        # self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.policy_net.parameters()), lr=lr)
 
-        if not train_mode:
+        if self.mode == 'test':
             self.policy_net.eval()
 
         # instance of the replay buffer
@@ -99,21 +117,29 @@ class DQNAgent:
         ---
         none
         """
-
-        if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
-            valid_actions = np.nonzero(mask)[0]
-            a = int(np.random.choice(valid_actions, 1))
-            return a
+        if not self.mode == 'finetune':
+            if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
+                valid_actions = np.nonzero(mask)[0]
+                a = int(np.random.choice(valid_actions, 1))
+                return a
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
             batch_of_state = self.preprocess_graphs([state]).to(self.device)
             action = self.policy_net.forward(batch_of_state).squeeze(1)
-            action = torch.mul(action.to(self.device), torch.tensor(mask).to(self.device))  # disable invalid nodes
+            action = action.to(self.device)
+
+            mask = torch.tensor(mask).to(self.device)
+            indexes = [(mask == 0).nonzero().squeeze().to(self.device)]
+            infinites = (torch.ones(len(indexes)) * float('-inf')).to(self.device)
+
+            action[indexes] = infinites
             a = torch.argmax(action).item()
+
         return a  # since actions are discrete, return index that has highest Q
 
     def learn(self, batchsize):
+
         """
         Function to perform the updates on the neural network that runs the DQN algorithm.
 
@@ -129,13 +155,15 @@ class DQNAgent:
 
         # select n samples picked uniformly at random from the experience replay memory, such that n=batchsize
         if len(self.memory) < batchsize:
+            print('memory less than batch size')
             return
         states, actions, next_states, rewards, dones = self.memory.sample(batchsize, self.device)
 
         # save graphs without virtual node for graph reconstruction loss
-        pyg_states_no_vir, batch_states = self.preprocess_graphs(states, virtual=True)
+        pyg_states_no_vir = [torch_geometric.utils.from_networkx(graph) for graph in states]
         batch_states_no_vir = torch_geometric.data.Batch.from_data_list(pyg_states_no_vir)
 
+        batch_states = self.preprocess_graphs(states)
         adapted_batch_index = torch.cat(
             [batch_states.batch[batch_states.batch == i][:-1] for i in range(batch_states.num_graphs)], dim=0)
 
@@ -153,23 +181,27 @@ class DQNAgent:
 
         values, argmax_indices = self.batch_max(q_target, adapted_batch_index)
         target_max = values.squeeze()
+
         td_target = rewards + self.discount * target_max * ~dones
 
-        # graph reconstruction loss
-        loss_recons = self.graph_recon_loss(batch_states_no_vir, embeddings)
         # calculate the loss as the mean-squared error of td_target and q_values_policy
-        # self.policy_net.optimizer.zero_grad()
         self.optimizer.zero_grad()
-        loss = F.mse_loss(td_target, q_values_policy) + 0.001 * loss_recons
+        loss = (F.mse_loss(td_target, q_values_policy))
+
+        if self.alpha:
+            # graph reconstruction loss
+            loss_recons = self.graph_recon_loss(batch_states_no_vir, embeddings)
+            loss += self.alpha * loss_recons
+
         loss.backward()
-        # self.policy_net.optimizer.step()
         self.optimizer.step()
 
     def preprocess_graphs(self, graphs, virtual=False):
         """
         add virtual node and convert to batch
         """
-        pyg_state = [torch_geometric.utils.from_networkx(graph) for graph in graphs]
+        pyg_state = [torch_geometric.utils.from_networkx(graph, group_node_attrs='all') for graph in graphs]
+
         transform = virtual_node.VirtualNode()
         data = [transform.forward(graph) for graph in pyg_state]
         batch_of_states = torch_geometric.data.Batch.from_data_list(data)
@@ -182,13 +214,16 @@ class DQNAgent:
         """
         Function to calculate graph reconstruction loss
         """
+
         embed = [embedding[graph.batch == i] for i in range(graph.batch_size)]
 
         laplacians = [torch.sparse_coo_tensor(lap[0], lap[1], (n, n)).to_dense() for lap, n in
                       zip([get_laplacian(graph[i].edge_index) for i in range(graph.batch_size)],
                           [graph[i].num_nodes for i in range(graph.batch_size)])]
 
-        loss_vals = [torch.trace(torch.matmul(torch.transpose(e.to(self.device), 0, 1), torch.matmul(l.to(self.device), e.to(self.device)))).to(self.device) for l, e in
+        loss_vals = [torch.trace(torch.matmul(torch.transpose(e.to(self.device), 0, 1),
+                                              torch.matmul(l.to(self.device), e.to(self.device)))).to(self.device) for
+                     l, e in
                      zip(laplacians, embed)]
         loss = sum(loss_vals) / graph.edge_index.size(1)
         return loss.to(self.device)
@@ -226,7 +261,8 @@ class DQNAgent:
         self.policy_net.load_model(filename=filename, device=self.device)
 
     def batch_max(self, ip, batch_index, dim=1):
-        dense_batch, mask = torch_geometric.utils.to_dense_batch(ip.to(self.device), batch_index.to(self.device), fill_value=float("-inf"))
+        dense_batch, mask = torch_geometric.utils.to_dense_batch(ip.to(self.device), batch_index.to(self.device),
+                                                                 fill_value=float("-inf"))
         max_values, argmax_indices = torch.max(dense_batch, dim=dim)
         return max_values, argmax_indices
 

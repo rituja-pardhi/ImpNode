@@ -19,8 +19,17 @@ class VirtualNode(BaseTransform):
         col = torch.cat([col, arange], dim=0)
         edge_index = torch.stack([row, col], dim=0)
 
-        new_type = edge_type.new_full((num_nodes,), int(edge_type.max()) + 1)
+        if edge_type.numel() == 0:
+            max_value = 0
+        else:
+            # Compute maximum value along a specific dimension
+            max_value = int(edge_type.max())
+        # max_value = int(edge_type.max())
+        # print(f'edge_type{edge_type}')
+        new_type = edge_type.new_full((num_nodes,), max_value + 1)
+        # print(f'new_type{new_type}')
         edge_type = torch.cat([edge_type, new_type, new_type + 1], dim=0)
+        # print(f'edge_type{edge_type}')
 
         old_data = copy.copy(data)
         for key, value in old_data.items():

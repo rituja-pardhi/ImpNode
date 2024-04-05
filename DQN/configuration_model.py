@@ -28,6 +28,7 @@ def cm_model(file_name, n_samples):
         degree_distribution[max_degree_idx] -= 1
 
     G = nx.configuration_model(degree_distribution)
+
     G = nx.Graph(G)
     G.remove_edges_from(nx.selfloop_edges(G))
     return G
