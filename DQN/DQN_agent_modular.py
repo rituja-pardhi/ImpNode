@@ -22,10 +22,11 @@ class DQNAgent:
     """
 
     def __init__(self, device, alpha, gnn_depth, state_size, hidden_size1, hidden_size2, action_size,
-                 discount, eps_max, eps_min, eps_step, memory_capacity, lr, mode):
+                 discount, eps_max, eps_min, eps_step, memory_capacity, lr, mode, unfrozen_layers=None):
 
         self.device = device
         self.alpha = alpha
+        self.unfrozen_layers = unfrozen_layers
 
         # for epsilon-greedy exploration strategy
         self.epsilon_min = eps_min
@@ -46,13 +47,13 @@ class DQNAgent:
 
         # instances of the network for current policy and its target
         self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
-                                 self.action_size, lr).to(self.device)
+                                 lr).to(self.device)
         self.target_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
-                                 self.action_size, lr).to(self.device)
+                                 lr).to(self.device)
 
         if self.mode == "finetune":
             for name, child in self.policy_net.named_children():
-                if name in ['linear5','linear4','dense1','dense2']:
+                if name in self.unfrozen_layers:
                     print(name + ' is unfrozen')
                     for param in child.parameters():
                         param.requires_grad = True
@@ -117,16 +118,17 @@ class DQNAgent:
         ---
         none
         """
-        if not self.mode == 'finetune':
-            if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
-                valid_actions = np.nonzero(mask)[0]
-                a = int(np.random.choice(valid_actions, 1))
-                return a
+
+        if random.random() <= self.epsilon:  # amount of exploration reduces with the epsilon value
+            valid_actions = np.nonzero(mask)[0]
+            a = int(np.random.choice(valid_actions, 1))
+            return a
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
             batch_of_state = self.preprocess_graphs([state]).to(self.device)
             action = self.policy_net.forward(batch_of_state).squeeze(1)
+
             action = action.to(self.device)
 
             mask = torch.tensor(mask).to(self.device)

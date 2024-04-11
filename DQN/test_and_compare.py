@@ -1,7 +1,7 @@
 import networkx as nx
 
 
-def test_loop(env, agent, NUM_TEST_EPS, results_basepath):
+def test_loop(env, agent, NUM_TEST_EPS):
     reward_history = []
     ep_score_history = []
     actions = []
@@ -22,7 +22,7 @@ def test_loop(env, agent, NUM_TEST_EPS, results_basepath):
     return actions, reward_history, ep_score_history
 
 
-def hda(anc, NUM_TEST_EPS, max_removed_nodes, data_path, file_name= None):
+def hda(anc, NUM_TEST_EPS, data_path, file_name= None):
     HDA_reward_history = []
     HDA_actions = []
     HDA_ep_score_history = []
@@ -32,26 +32,22 @@ def hda(anc, NUM_TEST_EPS, max_removed_nodes, data_path, file_name= None):
             graph = nx.read_gml(str(data_path) + '/' + str(file_name))
         else:
             graph = nx.read_gml(str(data_path) + "/g_{}".format(i))
-        # graph = nx.read_gml(str(data_path) + "/Crime_degree.gml".format(i))
-        # wt = nx.get_node_attributes(graph, "weight")
-        # wt = {node: val / sum(wt.values()) for node, val in wt.items()}
-        degrees = dict(graph.degree())
-        total_degree = sum(degrees.values())
 
-        wt = {node: degree / total_degree for node, degree in degrees.items()}
+        wt = nx.get_node_attributes(graph, 'weight')
+        total_wt = sum(wt.values())
         ep_score = 0
         max_degree_centrality_nodes = []
 
         length = int(len(graph.nodes))
 
-        for i in range(max_removed_nodes):  # while len(graph.edges) > 0:
+        while len(graph.edges) > 0:
             degree_centrality = nx.degree_centrality(graph)
 
             max_degree_centrality_node = max(degree_centrality, key=degree_centrality.get)
             max_degree_centrality_nodes.append(max_degree_centrality_node)
             graph.remove_node(str(max_degree_centrality_node))
 
-            reward = connectivity(anc, graph, wt, max_degree_centrality_node, length)
+            reward = connectivity(anc, graph, wt, max_degree_centrality_node, length, total_wt)
             ep_score += reward
             HDA_reward_history.append(reward)
             HDA_actions.append(max_degree_centrality_node)
@@ -61,7 +57,8 @@ def hda(anc, NUM_TEST_EPS, max_removed_nodes, data_path, file_name= None):
     return HDA_actions, HDA_reward_history, HDA_ep_score_history
 
 
-def connectivity(anc, graph, wt, max_degree_centrality_node, length):
+def connectivity(anc, graph, wt, max_degree_centrality_node, length, total_wt):
+
     GCC = sorted(nx.connected_components(graph), key=len, reverse=True)
 
     if anc == 'cn':
@@ -71,12 +68,12 @@ def connectivity(anc, graph, wt, max_degree_centrality_node, length):
 
     elif anc == 'dw_cn':
         weight = wt[str(max_degree_centrality_node)]
-        cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
+        cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC] / total_wt
         denominator = (length * (length - 1)) / 2
         return (sum(cn) * weight) / denominator
 
     elif anc == 'rw_cn':
-        weight = wt[str(max_degree_centrality_node)]
+        weight = wt[str(max_degree_centrality_node)] / total_wt
         cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
         denominator = (length * (length - 1)) / 2
         return (sum(cn) * weight) / denominator
@@ -86,11 +83,11 @@ def connectivity(anc, graph, wt, max_degree_centrality_node, length):
         return len(GCC[0]) / denominator
 
     elif anc == 'dw_nd':
-        weight = wt[str(max_degree_centrality_node)]
+        weight = wt[str(max_degree_centrality_node)] / total_wt
         denominator = length
         return (len(GCC[0]) * weight) / denominator
 
     else:
-        weight = wt[str(max_degree_centrality_node)]
+        weight = wt[str(max_degree_centrality_node)] / total_wt
         denominator = length
         return (len(GCC[0]) * weight) / denominator

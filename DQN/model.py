@@ -29,7 +29,7 @@ class DQNNet(nn.Module):
     Class that defines the architecture of the neural network for the DQN agent
     """
 
-    def __init__(self, depth, input_size, hidden_size1, hidden_size2, output_size, lr=1e-3):
+    def __init__(self, depth, input_size, hidden_size1, hidden_size2, lr=1e-3):
         #super(DQNNet, self).__init__()
 
         super().__init__()
@@ -42,7 +42,7 @@ class DQNNet(nn.Module):
         self.linear5 = nn.Linear(hidden_size1*hidden_size1, hidden_size1)
 
         self.dense1 = nn.Linear(hidden_size1, hidden_size2)
-        self.dense2 = nn.Linear(hidden_size2, output_size)
+        self.dense2 = nn.Linear(hidden_size2, 1)
         # self.apply(self._init_weights)
 
     def _init_weights(self, module):
