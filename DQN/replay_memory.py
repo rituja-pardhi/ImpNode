@@ -87,7 +87,7 @@ class ReplayMemory:
 
     def __len__(self):
         """
-        Function that specifies the number of elements persent in the replay memory
+        Function that specifies the number of elements present in the replay memory
 
 
         Parameters
@@ -100,3 +100,5 @@ class ReplayMemory:
             number of currently stored elements in the replay buffer
         """
         return len(self.buffer_state)
+
+    

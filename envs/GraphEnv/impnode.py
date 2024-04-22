@@ -122,11 +122,12 @@ class ImpnodeEnv(gym.Env):
 
         terminated = self._is_terminated()
         truncated = False
+
         return observation, reward, terminated, truncated, info
 
     def _is_terminated(self):
         if self.max_removed_nodes:
-            return len(self.graph.edges) == 0 or len(self.removed_nodes) > self.max_removed_nodes
+            return len(self.graph.edges) == 0 or len(self.removed_nodes) >= self.max_removed_nodes
         return len(self.graph.edges) == 0
 
     def _calculate_reward(self):
@@ -156,13 +157,13 @@ class ImpnodeEnv(gym.Env):
             graph = nx.relabel_nodes(graph, mapping)
             weights = nx.get_node_attributes(graph, 'weight')
         else:
-            if self.g_type == 'erdos_renyi':
+            if self.g_type == 'erdos-renyi':
                 graph = nx.erdos_renyi_graph(n=random.randint(*self.num_nodes), p=0.15)
             elif self.g_type == 'powerlaw':
                 graph = nx.powerlaw_cluster_graph(n=random.randint(*self.num_nodes), m=4, p=0.05)
             elif self.g_type == 'small-world':
                 graph = nx.connected_watts_strogatz_graph(n=random.randint(*self.num_nodes), k=8, p=0.1)
-            elif self.g_type == 'barabasi_albert':
+            elif self.g_type == 'barabasi-albert':
                 graph = nx.barabasi_albert_graph(n=random.randint(*self.num_nodes), m=4)
             else:
                 print('Unknown graph type')

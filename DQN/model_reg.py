@@ -29,7 +29,7 @@ class DQNNet(nn.Module):
     Class that defines the architecture of the neural network for the DQN agent
     """
 
-    def __init__(self, depth, input_size, hidden_size1, hidden_size2, lr=1e-3):#, dropout1=None, dropout2=None):
+    def __init__(self, depth, input_size, hidden_size1, hidden_size2, lr, dropout1, dropout2):
         #super(DQNNet, self).__init__()
 
         super().__init__()
@@ -44,6 +44,8 @@ class DQNNet(nn.Module):
         self.dense1 = nn.Linear(hidden_size1, hidden_size2)
         self.dense2 = nn.Linear(hidden_size2, 1)
 
+        self.dropout1 = nn.Dropout(dropout1)
+        self.dropout2 = nn.Dropout(dropout2)
 
         # self.apply(self._init_weights)
 
@@ -59,15 +61,18 @@ class DQNNet(nn.Module):
         # x, edge_index, edge_attr = data.x.to(torch.float32), data.edge_index, data.edge_attr.to(torch.float32)
 
         x = F.relu(self.linear1(x))
+        #x = self.dropout1(x)
         x = x / x.norm(dim=-1, keepdim=True)
+        x = self.dropout1(x)
 
         for _ in range(self.depth):
             neighbor_messages = self.sum_agg(x, edge_index)
 
-            x = torch.cat([self.linear3(neighbor_messages), self.linear2(x)], dim=-1)
+            x = torch.cat([self.dropout1(self.linear3(neighbor_messages)), self.dropout1(self.linear2(x))], dim=-1)
             x = F.relu(self.linear4(x))
-
+            #x = self.dropout1(x)
             x = x / x.norm(dim=-1, keepdim=True)
+            x = self.dropout1(x)
 
         # x = torch.cat([torch.cat(
         #     (x[data.batch == i][:-1], x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i
@@ -77,9 +82,10 @@ class DQNNet(nn.Module):
         x = torch.cat([torch.matmul(x[data.batch == i][:-1].unsqueeze(2),x[data.batch == i][-1].unsqueeze(1).T.unsqueeze(0)) for i in range(data.num_graphs)])
         x = torch.flatten(x, start_dim=1)
         x = self.linear5(x)
+        x = self.dropout1(x)
 
         x = F.relu(self.dense1(x))
-
+        #x = self.dropout2(x)
         x = self.dense2(x)
         if embedding:
             return x, embed

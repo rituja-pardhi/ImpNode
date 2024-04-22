@@ -22,7 +22,7 @@ def test_loop(env, agent, NUM_TEST_EPS):
     return actions, reward_history, ep_score_history
 
 
-def hda(anc, NUM_TEST_EPS, data_path, file_name= None):
+def hda(anc, NUM_TEST_EPS, data_path, file_name= None, max_removed_nodes = None):
     HDA_reward_history = []
     HDA_actions = []
     HDA_ep_score_history = []
@@ -41,6 +41,8 @@ def hda(anc, NUM_TEST_EPS, data_path, file_name= None):
         length = int(len(graph.nodes))
 
         while len(graph.edges) > 0:
+            if max_removed_nodes is not None and len(max_degree_centrality_nodes)>max_removed_nodes:
+                break
             degree_centrality = nx.degree_centrality(graph)
 
             max_degree_centrality_node = max(degree_centrality, key=degree_centrality.get)

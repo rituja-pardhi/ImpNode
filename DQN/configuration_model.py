@@ -21,7 +21,7 @@ def get_degree_distribution(file_name):
     return unique_degrees, cumulative_probs, degrees_original
 
 
-def cm_model(unique_degrees, cumulative_probs, degrees_original, n_samples):
+def cm_model(unique_degrees, cumulative_probs, degrees_original, n_samples, seed):
     degree_new = [unique_degrees[np.argmax(cumulative_probs >= i / n_samples)] for i in range(1, n_samples + 1)]
 
     mul_factor = np.mean(degrees_original) / np.mean(degree_new)
@@ -31,7 +31,7 @@ def cm_model(unique_degrees, cumulative_probs, degrees_original, n_samples):
         max_degree_idx = np.argmax(degree_distribution)
         degree_distribution[max_degree_idx] -= 1
 
-    G = nx.configuration_model(degree_distribution)
+    G = nx.configuration_model(degree_distribution, seed=seed)
     G = nx.Graph(G)
     G.remove_edges_from(nx.selfloop_edges(G))
 

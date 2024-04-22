@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch_geometric
 from torch_geometric.utils import get_laplacian
 
-from DQN.model import DQNNet
+from DQN.model_reg import DQNNet
 from DQN.replay_memory import ReplayMemory
 from DQN import virtual_node
 import torch.optim as optim
@@ -52,9 +52,9 @@ class DQNAgent:
 
         # instances of the network for current policy and its target
         self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
-                                 lr).to(self.device)
+                                 lr, self.dropout1, self.dropout2).to(self.device)
         self.target_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
-                                 lr,).to(self.device)
+                                 lr, self.dropout1, self.dropout2).to(self.device)
 
         if self.mode == "finetune":
             for name, child in self.policy_net.named_children():
@@ -70,7 +70,7 @@ class DQNAgent:
         self.target_net.eval()  # since no learning is performed on the target net
 
         # self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
-        self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.policy_net.parameters()), lr=lr)#, weight_decay=self.l2_reg)
+        self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.policy_net.parameters()), lr=lr, weight_decay=self.l2_reg)
 
         if self.mode == 'test':
             self.policy_net.eval()
