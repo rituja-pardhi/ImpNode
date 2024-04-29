@@ -14,7 +14,7 @@ from envs.spaces import GraphSpace
 
 class ImpnodeEnv(gym.Env):
 
-    def __init__(self, anc, g_type, num_nodes, mode,
+    def __init__(self, anc, g_type=None, num_nodes=None, mode=None,
                  data_path=None, file_name=None, render=False, max_removed_nodes=None):
 
         self.anc = anc

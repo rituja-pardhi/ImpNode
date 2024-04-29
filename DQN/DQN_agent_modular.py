@@ -23,7 +23,7 @@ class DQNAgent:
 
     def __init__(self, device, alpha, gnn_depth, state_size, hidden_size1, hidden_size2, action_size,
                  discount, eps_max, eps_min, eps_step, memory_capacity, lr, mode, unfrozen_layers=None,
-                 dropout1=None, dropout2=None, l2_reg=None):
+                 dropout1=None, dropout2=None, l2_reg=None, num_rm=None):
 
         self.device = device
         self.alpha = alpha
@@ -49,6 +49,8 @@ class DQNAgent:
         self.dropout1 = dropout1
         self.dropout2 = dropout2
         self.l2_reg = l2_reg
+
+        self.num_rm = num_rm
 
         # instances of the network for current policy and its target
         self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
@@ -76,8 +78,11 @@ class DQNAgent:
             self.policy_net.eval()
 
         # instance of the replay buffer
-        self.memory = ReplayMemory(capacity=memory_capacity)
-
+        if self.num_rm is None:
+            self.memory = ReplayMemory(capacity=int(memory_capacity))
+        else:
+            self.memory1 = ReplayMemory(capacity=int(memory_capacity/2))
+            self.memory2 = ReplayMemory(capacity=int(memory_capacity/2))
     def update_target_net(self):
         """
         Function to copy the weights of the current policy net into the (frozen) target net
@@ -161,11 +166,26 @@ class DQNAgent:
         """
 
         # select n samples picked uniformly at random from the experience replay memory, such that n=batchsize
-        if len(self.memory) < batchsize:
+        #if len(self.memory1) < batchsize and len(self.memory2) < batchsize:
+        if self.num_rm is None:
+            memory_len = len(self.memory)
+        else:
+            memory_len = len(self.memory1) + len(self.memory2)
+        if memory_len < batchsize:
             print('memory less than batch size')
             return
-        states, actions, next_states, rewards, dones = self.memory.sample(batchsize, self.device)
 
+        if self.num_rm is None:
+            states, actions, next_states, rewards, dones = self.memory.sample(int(batchsize), self.device)
+        else:
+            states1, actions1, next_states1, rewards1, dones1 = self.memory1.sample(int(batchsize/2), self.device)
+            states2, actions2, next_states2, rewards2, dones2 = self.memory2.sample(int(batchsize/2), self.device)
+
+            states = [*states1, *states2]
+            actions = torch.cat((actions1, actions2))
+            next_states = [*next_states1, *next_states2]
+            rewards = torch.cat((rewards1, rewards2))
+            dones = torch.cat((dones1, dones2))
         # save graphs without virtual node for graph reconstruction loss
         pyg_states_no_vir = [torch_geometric.utils.from_networkx(graph) for graph in states]
         batch_states_no_vir = torch_geometric.data.Batch.from_data_list(pyg_states_no_vir)

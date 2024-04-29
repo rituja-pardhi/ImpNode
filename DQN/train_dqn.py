@@ -20,15 +20,16 @@ def train_dqn(env, agent, results_base_path, num_train_eps, num_mem_fill_eps, n_
     logs = {}
     last_100_rewards = deque([], maxlen=100)
 
-    step_cnt = 0
+    #step_cnt = 0
     best_score = -np.inf
 
     csv_name= 'info.csv'
     with open('{}/{}'.format(results_base_path,csv_name), 'w', newline='') as file:
         csv_writer = csv.writer(file)
-        csv_writer.writerow(['ep_cnt', 'train_avg_score', 'val_avg_score'])
-        for ep_cnt in range(num_train_eps+num_mem_fill_eps):
-
+        csv_writer.writerow(['ep_cnt', 'train_avg_score', 'val_avg_score', 'time'])
+        start_time = time.time()
+        for ep_cnt in range(num_train_eps):
+            env.data_path = train_data_path
             state_history, action_history, reward_history = [], [], []
             done = False
             state, info = env.reset(ep_cnt)
@@ -61,15 +62,14 @@ def train_dqn(env, agent, results_base_path, num_train_eps, num_mem_fill_eps, n_
                 state = next_state
                 ep_score += reward
             if ep_cnt < num_mem_fill_eps:
-
                 continue
 
             agent.learn(batch_size)
 
-            if step_cnt % update_frequency == 0:
+            if ep_cnt % update_frequency == 0:
                 agent.update_target_net()
 
-            step_cnt += 1
+            #step_cnt += 1
 
             agent.update_epsilon()
 
@@ -103,14 +103,15 @@ def train_dqn(env, agent, results_base_path, num_train_eps, num_mem_fill_eps, n_
                     print("Early stopping")
                     break
 
-                if val_score >= best_score:
-                    agent.save_model('{}/{}.pt'.format(results_base_path, model_name))
-                    best_score = val_score
+                #if val_score >= best_score:
+                agent.save_model('{}/{}_{}.pt'.format(results_base_path, ep_cnt, model_name))
+                #    best_score = val_score
 
             # update the plots in real-time
             liveloss.update(logs)
             liveloss.send()
-            csv_writer.writerow([ep_cnt, current_avg_score, val_score])
+            end_time = time.time()
+            csv_writer.writerow([ep_cnt, current_avg_score, val_score, end_time-start_time])
 
     # store the reward and epsilon history that was tracked while running locally
     return val_score
