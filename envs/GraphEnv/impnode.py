@@ -102,12 +102,11 @@ class ImpnodeEnv(gym.Env):
         nx.draw(self.graph, self.pos, with_labels=True)
         return fig
 
-    def step(self, action: ActType) -> tuple[DiGraph, float | Any, bool, bool, dict]:
+    def step(self, actions: ActType) -> tuple[DiGraph, float | Any, bool, bool, dict]:
         assert not self._is_terminated(), "Env is terminated. Use reset()"
 
-        node = action
-
-        self.node_action_mask[action] = 0
+        node = actions
+        self.node_action_mask[actions] = 0
         self.removed_nodes.append(node)
 
         # remove edges from graph
@@ -161,7 +160,7 @@ class ImpnodeEnv(gym.Env):
                 graph = nx.erdos_renyi_graph(n=random.randint(*self.num_nodes), p=0.15)
             elif self.g_type == 'powerlaw':
                 graph = nx.powerlaw_cluster_graph(n=random.randint(*self.num_nodes), m=4, p=0.05)
-            elif self.g_type == 'small-world':
+            elif self.g_type == 'watts-strogatz':
                 graph = nx.connected_watts_strogatz_graph(n=random.randint(*self.num_nodes), k=8, p=0.1)
             elif self.g_type == 'barabasi-albert':
                 graph = nx.barabasi_albert_graph(n=random.randint(*self.num_nodes), m=4)
