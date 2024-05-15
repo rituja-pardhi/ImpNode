@@ -29,21 +29,22 @@ class DQNNet(nn.Module):
     Class that defines the architecture of the neural network for the DQN agent
     """
 
-    def __init__(self, depth, input_size, hidden_size1, hidden_size2, lr=1e-3):#, dropout1=None, dropout2=None):
-        #super(DQNNet, self).__init__()
+    def __init__(self, depth, input_size, hidden_size1, hidden_size2, lr=1e-3):  # , dropout1=None, dropout2=None):
+        # super(DQNNet, self).__init__()
 
         super().__init__()
         self.depth = depth
+
         self.linear1 = nn.Linear(input_size, hidden_size1)
         self.linear2 = nn.Linear(hidden_size1, hidden_size1)
         self.linear3 = nn.Linear(hidden_size1, hidden_size1)
         self.linear4 = nn.Linear(2 * hidden_size1, hidden_size1)
         self.sum_agg = SumAgg()
-        self.linear5 = nn.Linear(hidden_size1*hidden_size1, hidden_size1)
-
+        self.linear5 = nn.Linear(hidden_size1 * hidden_size1, hidden_size1)
+        #self.dense1 = nn.Linear(hidden_size1 * hidden_size1, hidden_size2) #cross_product
+        #self.dense1 = nn.Linear(2 * hidden_size1, hidden_size2)
         self.dense1 = nn.Linear(hidden_size1, hidden_size2)
         self.dense2 = nn.Linear(hidden_size2, 1)
-
 
         # self.apply(self._init_weights)
 
@@ -69,12 +70,14 @@ class DQNNet(nn.Module):
 
             x = x / x.norm(dim=-1, keepdim=True)
 
+
+        embed = torch.cat([x[data.batch == i][:-1] for i in range(data.num_graphs)])
         # x = torch.cat([torch.cat(
         #     (x[data.batch == i][:-1], x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i
         #     in range(data.num_graphs)])
-        embed = torch.cat([x[data.batch == i][:-1] for i in range(data.num_graphs)])
-
-        x = torch.cat([torch.matmul(x[data.batch == i][:-1].unsqueeze(2),x[data.batch == i][-1].unsqueeze(1).T.unsqueeze(0)) for i in range(data.num_graphs)])
+        x = torch.cat(
+            [torch.matmul(x[data.batch == i][:-1].unsqueeze(2), x[data.batch == i][-1].unsqueeze(1).T.unsqueeze(0)) for
+             i in range(data.num_graphs)])
         x = torch.flatten(x, start_dim=1)
         x = self.linear5(x)
 
@@ -86,7 +89,7 @@ class DQNNet(nn.Module):
 
         return x
 
-    def save_model(self, filename):
+    def save_model(self, filename, ep_cnt):
         """
         Function to save model parameters
 
@@ -100,7 +103,10 @@ class DQNNet(nn.Module):
         none
         """
 
-        torch.save(self.state_dict(), filename)
+        torch.save({
+            'epoch': ep_cnt,
+            'model_state_dict': self.state_dict()},
+            filename)
         # torch.save(self, filename) -->cannot cope with changing parameters
 
     def load_model(self, filename, device):
@@ -118,8 +124,10 @@ class DQNNet(nn.Module):
         ---
         none
         """
+
         current_model_dict = self.state_dict()
-        loaded_state_dict = torch.load(filename, map_location=device)
+        checkpoint = torch.load(filename, map_location=device)
+        loaded_state_dict = checkpoint['model_state_dict']
         new_state_dict = {k: v if v.size() == current_model_dict[k].size() else current_model_dict[k] for k, v in
                           zip(current_model_dict.keys(), loaded_state_dict.values())}
         self.load_state_dict(new_state_dict, strict=False)

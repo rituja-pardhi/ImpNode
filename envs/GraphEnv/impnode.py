@@ -37,26 +37,23 @@ class ImpnodeEnv(gym.Env):
 
         self.observation_space: Union[GraphSpace, None] = None
         self.action_space = None
-
-        self.setup()
+        if not self.mode == 'test_multiple':
+            self.setup()
         if self.render:
             self.render_graph()
 
     def setup(self, ep=0):
 
         self.graph, self.weights = self.gen_graph(ep)
-
         self.total_weight = sum(self.weights.values())
-        self.pos = nx.spring_layout(self.graph)
+        # self.pos = nx.spring_layout(self.graph)
         self.graph_len = len(self.graph.nodes)
-
         self.observation_space = GraphSpace(num_nodes=int(self.graph_len))
         self.action_space = gym.spaces.Discrete(int(self.graph_len))
 
         # node action mask = [1,1,1,1,..num nodes]
         self.node_action_mask = np.ones((int(self.graph_len)), dtype=np.int8)
         self.removed_nodes = []
-
         obs, info = self._get_obs()
 
         return obs, info
@@ -68,6 +65,7 @@ class ImpnodeEnv(gym.Env):
         return degree_weights
 
     def get_random_weights(self, graph):
+
         # degree_weight = self.get_degree_weights(graph)
         # delta = np.random.normal(0, 1)  # Random variable drawn from a normal distribution
         # median_degree = np.median(list(degree_weight.values()))
@@ -78,6 +76,7 @@ class ImpnodeEnv(gym.Env):
         # maxDegree = max(dict(degree).values())
         mu = np.mean(list(dict(degree).values()))
         std = np.std(list(dict(degree).values()))
+
         weights = {}
         for node in graph.nodes():
             episilon = np.random.normal(mu, std, 1)[0]
@@ -87,6 +86,7 @@ class ImpnodeEnv(gym.Env):
         maxDegree = max(weights.values())
         for node in graph.nodes():
             weights[node] = weights[node] / maxDegree
+
         return weights
 
     def _get_obs(self) -> tuple[Any, dict[Any, Any]]:
@@ -105,12 +105,21 @@ class ImpnodeEnv(gym.Env):
     def step(self, actions: ActType) -> tuple[DiGraph, float | Any, bool, bool, dict]:
         assert not self._is_terminated(), "Env is terminated. Use reset()"
 
-        node = actions
-        self.node_action_mask[actions] = 0
-        self.removed_nodes.append(node)
+        if self.mode == 'test_multiple':
+            actions = actions.to('cpu')
+            nodes = actions.tolist()
+            self.node_action_mask[nodes] = 0
+            self.removed_nodes.extend(nodes)
+            edges_to_remove = [i for i in self.graph.edges for node in nodes if int(i[0]) == int(node) or int(i[1]) == int(node)]
+            self.graph.remove_edges_from(edges_to_remove)
 
-        # remove edges from graph
-        [self.graph.remove_edge(*i) for i in self.graph.edges if int(i[0]) == int(node) or int(i[1]) == int(node)]
+        else:
+            node = actions
+            self.node_action_mask[actions] = 0
+            self.removed_nodes.append(node)
+
+            # remove edges from graph
+            [self.graph.remove_edge(*i) for i in self.graph.edges if int(i[0]) == int(node) or int(i[1]) == int(node)]
 
         if self.render:
             self.render_graph()
@@ -130,7 +139,9 @@ class ImpnodeEnv(gym.Env):
         return len(self.graph.edges) == 0
 
     def _calculate_reward(self):
-        if self.mode == 'test':
+        if self.mode == 'test_multiple':
+            return 0
+        elif self.mode == 'test':
             return self.connectivity()
         anc = -self.connectivity()
         return anc
@@ -150,7 +161,7 @@ class ImpnodeEnv(gym.Env):
                 file_name = f"g_{ep}"
                 graph = nx.read_gml(self.data_path / file_name)
             else:
-                graph = nx.read_gml(self.data_path / self.file_name)
+                graph = nx.read_gml(self.data_path / self.file_name, destringizer=int)
 
             mapping = {node: int(node) for i, node in enumerate(graph.nodes())}
             graph = nx.relabel_nodes(graph, mapping)
@@ -163,16 +174,22 @@ class ImpnodeEnv(gym.Env):
             elif self.g_type == 'watts-strogatz':
                 graph = nx.connected_watts_strogatz_graph(n=random.randint(*self.num_nodes), k=8, p=0.1)
             elif self.g_type == 'barabasi-albert':
-                graph = nx.barabasi_albert_graph(n=random.randint(*self.num_nodes), m=4)
+                #m = random.randint(1, 5)
+                m=4
+                graph = nx.barabasi_albert_graph(n=random.randint(*self.num_nodes), m=m)
             else:
                 print('Unknown graph type')
 
-            if self.anc == 'dw_cn' or 'dw_nd':
+            if self.anc == 'dw_cn' or self.anc == 'dw_nd':
                 weights = self.get_degree_weights(graph)
-            elif self.anc == 'rw_cn' or 'rw_nd':
+                nx.set_node_attributes(graph, weights, 'weight')
+            elif self.anc == 'rw_cn' or self.anc == 'rw_nd':
                 weights = self.get_random_weights(graph)
+                nx.set_node_attributes(graph, weights, 'weight')
+            elif self.anc == 'cn' or self.anc == 'nd':
+                nx.set_node_attributes(graph, 1, 'weight')
 
-            nx.set_node_attributes(graph, weights, 'weight')
+            #nx.set_node_attributes(graph, weights, 'weight')
         nx.set_node_attributes(graph, 1, 'features')
         return graph, weights
 
@@ -202,13 +219,9 @@ class ImpnodeEnv(gym.Env):
             return len(GCC[0]) / denominator
 
         elif self.anc == 'dw_nd':
-            # if self.mode == 'test':
             denominator = self.graph_len
             weight = self.weights[int(self.removed_nodes[-1])] / self.total_weight
             return (len(GCC[0]) * weight) / denominator
-            # else:
-            #     denominator = self.graph_len * self.graph_len
-            #     return len(GCC[0]) / denominator
 
         else:
             denominator = self.graph_len

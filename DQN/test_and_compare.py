@@ -22,7 +22,38 @@ def test_loop(env, agent, NUM_TEST_EPS):
     return actions, reward_history, ep_score_history
 
 
-def hda(anc, NUM_TEST_EPS, data_path, file_name= None, max_removed_nodes = None):
+def test_loop2(env, agent, NUM_TEST_EPS, step_ratio=0.01):
+    reward_history = []
+    ep_score_history = []
+    actions = []
+    for ep in range(NUM_TEST_EPS):
+        ep_score = 0
+        done = False
+        state, info = env.reset(ep)
+        num_nodes = len(state.nodes)
+
+        n = int(step_ratio * num_nodes)
+
+        while not done:
+            num_removed_nodes = len(env.removed_nodes)
+            if num_nodes - num_removed_nodes < n:
+                n = num_nodes - num_removed_nodes
+
+            mask = info['node_action_mask']
+            action_list = agent.select_action(state, mask, n)
+
+            actions.extend(action_list)
+            next_state, reward, done, truncated, _ = env.step(action_list)
+            ep_score += reward
+            state = next_state
+            reward_history.append(reward)
+
+        ep_score_history.append(ep_score)
+
+    return actions, reward_history, ep_score_history
+
+
+def hda(anc, NUM_TEST_EPS, data_path, file_name=None, max_removed_nodes=None):
     HDA_reward_history = []
     HDA_actions = []
     HDA_ep_score_history = []
@@ -41,14 +72,14 @@ def hda(anc, NUM_TEST_EPS, data_path, file_name= None, max_removed_nodes = None)
         length = int(len(graph.nodes))
 
         while len(graph.edges) > 0:
-            if max_removed_nodes is not None and len(max_degree_centrality_nodes)>max_removed_nodes:
+            if max_removed_nodes is not None and len(max_degree_centrality_nodes) > max_removed_nodes:
                 break
             degree_centrality = nx.degree_centrality(graph)
 
             max_degree_centrality_node = max(degree_centrality, key=degree_centrality.get)
             max_degree_centrality_nodes.append(max_degree_centrality_node)
-            graph.remove_node(str(max_degree_centrality_node))
-
+            #graph.remove_node(str(max_degree_centrality_node))
+            graph.remove_node(max_degree_centrality_node)
             reward = connectivity(anc, graph, wt, max_degree_centrality_node, length, total_wt)
             ep_score += reward
             HDA_reward_history.append(reward)
@@ -69,8 +100,8 @@ def connectivity(anc, graph, wt, max_degree_centrality_node, length, total_wt):
         return sum(cn) / denominator
 
     elif anc == 'dw_cn':
-        weight = wt[str(max_degree_centrality_node)]
-        cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC] / total_wt
+        weight = wt[str(max_degree_centrality_node)] / total_wt
+        cn = [(len(gcc) * (len(gcc) - 1)) / 2 for gcc in GCC]
         denominator = (length * (length - 1)) / 2
         return (sum(cn) * weight) / denominator
 

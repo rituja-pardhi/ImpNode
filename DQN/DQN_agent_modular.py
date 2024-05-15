@@ -1,6 +1,8 @@
 """
 Script that contains details how the DQN agent learns, updates the target network, selects actions and save/loads the model
 """
+import time
+
 import networkx as nx
 import random
 import numpy as np
@@ -23,7 +25,7 @@ class DQNAgent:
 
     def __init__(self, device, alpha, gnn_depth, state_size, hidden_size1, hidden_size2, action_size,
                  discount, eps_max, eps_min, eps_step, memory_capacity, lr, mode, unfrozen_layers=None,
-                 dropout1=None, dropout2=None, l2_reg=None, num_rm=None):
+                 dropout1=None, dropout2=None, l2_reg=None):
 
         self.device = device
         self.alpha = alpha
@@ -49,8 +51,6 @@ class DQNAgent:
         self.dropout1 = dropout1
         self.dropout2 = dropout2
         self.l2_reg = l2_reg
-
-        self.num_rm = num_rm
 
         # instances of the network for current policy and its target
         self.policy_net = DQNNet(self.gnn_depth, self.state_size, self.hidden_size1, self.hidden_size2,
@@ -78,11 +78,8 @@ class DQNAgent:
             self.policy_net.eval()
 
         # instance of the replay buffer
-        if self.num_rm is None:
-            self.memory = ReplayMemory(capacity=int(memory_capacity))
-        else:
-            self.memory1 = ReplayMemory(capacity=int(memory_capacity/2))
-            self.memory2 = ReplayMemory(capacity=int(memory_capacity/2))
+        self.memory = ReplayMemory(capacity=int(memory_capacity))
+
     def update_target_net(self):
         """
         Function to copy the weights of the current policy net into the (frozen) target net
@@ -114,7 +111,7 @@ class DQNAgent:
         self.epsilon -= (self.epsilon_max - self.epsilon_min) / self.epsilon_step
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-    def select_action(self, state, mask):
+    def select_action(self, state, mask, n=1):
         """
         Uses epsilon-greedy exploration such that, if the randomly generated number is less than epsilon then the agent performs random action, else the agent executes the action suggested by the policy Q-network
 
@@ -138,15 +135,17 @@ class DQNAgent:
         with torch.no_grad():
             batch_of_state = self.preprocess_graphs([state]).to(self.device)
             action = self.policy_net.forward(batch_of_state).squeeze(1)
-
             action = action.to(self.device)
-
             mask = torch.tensor(mask).to(self.device)
             indexes = [(mask == 0).nonzero().squeeze().to(self.device)]
             infinites = (torch.ones(len(indexes)) * float('-inf')).to(self.device)
 
             action[indexes] = infinites
-            a = torch.argmax(action).item()
+
+            if self.mode == "test_multiple":
+                a = torch.topk(action, n).indices
+            else:
+                a = int(torch.topk(action, 1).indices)
 
         return a  # since actions are discrete, return index that has highest Q
 
@@ -166,26 +165,13 @@ class DQNAgent:
         """
 
         # select n samples picked uniformly at random from the experience replay memory, such that n=batchsize
-        #if len(self.memory1) < batchsize and len(self.memory2) < batchsize:
-        if self.num_rm is None:
-            memory_len = len(self.memory)
-        else:
-            memory_len = len(self.memory1) + len(self.memory2)
-        if memory_len < batchsize:
+
+        if len(self.memory) < batchsize:
             print('memory less than batch size')
             return
 
-        if self.num_rm is None:
-            states, actions, next_states, rewards, dones = self.memory.sample(int(batchsize), self.device)
-        else:
-            states1, actions1, next_states1, rewards1, dones1 = self.memory1.sample(int(batchsize/2), self.device)
-            states2, actions2, next_states2, rewards2, dones2 = self.memory2.sample(int(batchsize/2), self.device)
+        states, actions, next_states, rewards, dones = self.memory.sample(int(batchsize), self.device)
 
-            states = [*states1, *states2]
-            actions = torch.cat((actions1, actions2))
-            next_states = [*next_states1, *next_states2]
-            rewards = torch.cat((rewards1, rewards2))
-            dones = torch.cat((dones1, dones2))
         # save graphs without virtual node for graph reconstruction loss
         pyg_states_no_vir = [torch_geometric.utils.from_networkx(graph) for graph in states]
         batch_states_no_vir = torch_geometric.data.Batch.from_data_list(pyg_states_no_vir)
@@ -228,10 +214,10 @@ class DQNAgent:
         add virtual node and convert to batch
         """
         pyg_state = [torch_geometric.utils.from_networkx(graph, group_node_attrs='all') for graph in graphs]
-
         transform = virtual_node.VirtualNode()
         data = [transform.forward(graph) for graph in pyg_state]
         batch_of_states = torch_geometric.data.Batch.from_data_list(data)
+
         if virtual:
             return pyg_state, batch_of_states
         else:
@@ -255,7 +241,7 @@ class DQNAgent:
         loss = sum(loss_vals) / graph.edge_index.size(1)
         return loss.to(self.device)
 
-    def save_model(self, filename):
+    def save_model(self, filename, ep_cnt):
         """
         Function to save the policy network
 
@@ -269,7 +255,7 @@ class DQNAgent:
         none
         """
 
-        self.policy_net.save_model(filename)
+        self.policy_net.save_model(filename, ep_cnt)
 
     def load_model(self, filename):
         """
