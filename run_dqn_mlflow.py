@@ -4,7 +4,7 @@ import random
 import torch
 import time
 from pathlib import Path
-from DQN.train_dqn import train_dqn
+from DQN.train_dqn import train_dqn_vm
 import mlflow
 from envs.GraphEnv.impnode import ImpnodeEnv
 from torch.utils.tensorboard import SummaryWriter
@@ -94,7 +94,7 @@ def train(results_base_path_train, g_type, train_data_path, val_data_path):
                                                      lr=params['lr'],
                                                      mode='train')
 
-        train_dqn(env_train, dqn_agent_train, results_base_path_train_new, params['num_train_eps'],
+        train_dqn_vm(env_train, dqn_agent_train, results_base_path_train_new, params['num_train_eps'],
                   params['num_mem_fill_eps'], params['n_step'], params['batch_size'], params['update_frequency'],
                   train_data_path=params['train_data_path'], val_data_path=params['val_data_path'],
                   val_step=params['val_step'], writer=writer)
