@@ -4,7 +4,7 @@ import random
 import torch
 import time
 from pathlib import Path
-from DQN.train_dqn import train_dqn_vm
+from DQN.train_dqn_vm import train_dqn_vm
 import mlflow
 from envs.GraphEnv.impnode import ImpnodeEnv
 from torch.utils.tensorboard import SummaryWriter
