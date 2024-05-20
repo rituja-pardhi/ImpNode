@@ -116,7 +116,7 @@ if __name__ == '__main__':
     mlflow.set_tracking_uri('sqlite:///mlflow.db')
     mlflow.set_experiment('VM_GPU')
 
-    train_data_types = 'erdos-renyi'
+    train_data_types = ['erdos-renyi']
     train_data_paths = [None]
     val_data_paths = ['data/synthetic_small_dataset/ER_val_30_50']
     results_base_path_train = 'results/train_baseline_model_vm_gpu'
