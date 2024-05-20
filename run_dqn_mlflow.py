@@ -13,7 +13,7 @@ from DQN import DQN_agent_modular
 from DQN.test_and_compare import test_loop
 
 
-def train(results_base_path_train, g_type, train_data_path, val_data_path, depth, hidden1, hidden2, lr):
+def train(results_base_path_train, g_type, train_data_path, val_data_path, depth, hidden1, hidden2, lr, alpha):
     seed = 412
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -50,7 +50,7 @@ def train(results_base_path_train, g_type, train_data_path, val_data_path, depth
             'eps_min': 0.05,
             'eps_step': 10000,
             'lr': lr,
-            'alpha': 0.001,
+            'alpha': alpha,
 
             'gnn_depth': depth,
             'state_size': 2,
@@ -127,13 +127,15 @@ if __name__ == '__main__':
     hidden_dim_1 = [32, 64]
     hidden_dim_2 = [32, 64]
     lrs = [0.0001, 0.00001]
+    alphas = [0.01, 0.001, 0.0001]
 
     for train_data, train_data_path, val_data_path in zip(train_data_types, train_data_paths, val_data_paths):
         for depth in depths:
             for hidden1 in hidden_dim_1:
                 for hidden2 in hidden_dim_2:
                     for lr in lrs:
-                        train(results_base_path_train, g_type=train_data, train_data_path=train_data_path,
-                              val_data_path=Path.cwd() / val_data_path, depth=depth,
-                              hidden1=hidden1, hidden2=hidden2, lr=lr)
-                        print('Finished training')
+                        for alpha in alphas:
+                            train(results_base_path_train, g_type=train_data, train_data_path=train_data_path,
+                                  val_data_path=Path.cwd() / val_data_path, depth=depth,
+                                  hidden1=hidden1, hidden2=hidden2, lr=lr, alpha=alpha)
+                            print('Finished training')
