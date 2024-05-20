@@ -57,7 +57,6 @@ class DQNNet(nn.Module):
 
     def forward(self, data, aux_input, embedding=False):
         x, edge_index = data.x.to(torch.float32), data.edge_index
-
         # x, edge_index, edge_attr = data.x.to(torch.float32), data.edge_index, data.edge_attr.to(torch.float32)
 
         x = F.relu(self.linear1(x))

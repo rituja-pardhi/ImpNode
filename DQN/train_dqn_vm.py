@@ -72,6 +72,7 @@ def train_dqn_vm(env, agent, results_base_path, num_train_eps, num_mem_fill_eps,
 
         loss = agent.learn(batch_size)
         logs['loss'] = loss.detach().numpy()
+        writer.add_scalar('loss', loss, ep_cnt)
         if ep_cnt % update_frequency == 0:
             agent.update_target_net()
 

@@ -12,7 +12,8 @@ from torch.utils.tensorboard import SummaryWriter
 from DQN import DQN_agent_modular
 from DQN.test_and_compare import test_loop
 
-def train(results_base_path_train, g_type, train_data_path, val_data_path):
+
+def train(results_base_path_train, g_type, train_data_path, val_data_path, depth, hidden1, hidden2, lr):
     seed = 412
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -39,7 +40,7 @@ def train(results_base_path_train, g_type, train_data_path, val_data_path):
             'seed': seed,
             'aux_dim': True,
 
-            'num_train_eps': 50000,
+            'num_train_eps': 20000,
             'num_mem_fill_eps': 100,
             'discount': 0.99,
             'batch_size': 64,
@@ -48,13 +49,13 @@ def train(results_base_path_train, g_type, train_data_path, val_data_path):
             'eps_max': 1.0,
             'eps_min': 0.05,
             'eps_step': 10000,
-            'lr': 0.0001,
+            'lr': lr,
             'alpha': 0.001,
 
-            'gnn_depth': 4,
+            'gnn_depth': depth,
             'state_size': 2,
-            'hidden_size1': 64,
-            'hidden_size2': 64,
+            'hidden_size1': hidden1,
+            'hidden_size2': hidden2,
             'action_size': 1,
             'n_step': 5,
 
@@ -96,31 +97,43 @@ def train(results_base_path_train, g_type, train_data_path, val_data_path):
                                                      mode='train')
 
         train_dqn_vm(env_train, dqn_agent_train, results_base_path_train_new, params['num_train_eps'],
-                  params['num_mem_fill_eps'], params['n_step'], params['batch_size'], params['update_frequency'],
-                  train_data_path=params['train_data_path'], val_data_path=params['val_data_path'],
-                  val_step=params['val_step'], writer=writer)
+                     params['num_mem_fill_eps'], params['n_step'], params['batch_size'], params['update_frequency'],
+                     train_data_path=params['train_data_path'], val_data_path=params['val_data_path'],
+                     val_step=params['val_step'], writer=writer)
 
-        subdir = 'data/real/Cost'
-        file_name = 'Crime_degree.gml'
+        subdir = params['val_data_path']
         data_path = Path.cwd() / subdir
 
-        env_test = ImpnodeEnv(anc='dw_nd', data_path=data_path, mode='test', file_name=file_name)
-        actions, reward_history, ep_score_history = test_loop(env=env_test,
-                                                              agent=dqn_agent_train,
-                                                              NUM_TEST_EPS=1)
+        env_test_val = ImpnodeEnv(anc='dw_nd', data_path=data_path, mode='test')
 
-        mlflow.log_metric('anc_crime', ep_score_history[0])
+        actions, reward_history, ep_score_history = test_loop(env=env_test_val,
+                                                                 agent=dqn_agent_train,
+                                                                 NUM_TEST_EPS=20)
+        mlflow.log_metric('anc_val', np.mean(ep_score_history))
+
 
 
 if __name__ == '__main__':
 
     mlflow.set_tracking_uri('sqlite:///mlflow.db')
-    mlflow.set_experiment('VM_GPU')
+    mlflow.set_experiment('VM_GPU_2')
 
-    train_data_types = ['erdos-renyi']
-    train_data_paths = [None]
-    val_data_paths = ['data/synthetic_small_dataset/ER_val_30_50']
-    results_base_path_train = 'results/train_baseline_model_vm_gpu'
+    train_data_types = ['erdos-renyi','watts-strogatz']
+    train_data_paths = [None, None]
+    val_data_paths = ['data/synthetic_small_dataset/ER_val_30_50','data/synthetic_small_dataset/WS_val_30_50']
+    results_base_path_train = 'results/train_baseline_model_vm_gpu_2'
+
+    depths = [3, 4]
+    hidden_dim_1 = [32, 64]
+    hidden_dim_2 = [32, 64]
+    lrs = [0.0001, 0.00001]
 
     for train_data, train_data_path, val_data_path in zip(train_data_types, train_data_paths, val_data_paths):
-        train(results_base_path_train, g_type=train_data,train_data_path = train_data_path, val_data_path = Path.cwd()/val_data_path)
+        for depth in depths:
+            for hidden1 in hidden_dim_1:
+                for hidden2 in hidden_dim_2:
+                    for lr in lrs:
+                        train(results_base_path_train, g_type=train_data, train_data_path=train_data_path,
+                              val_data_path=Path.cwd() / val_data_path, depth=depth,
+                              hidden1=hidden1, hidden2=hidden2, lr=lr)
+                        print('Finished training')
