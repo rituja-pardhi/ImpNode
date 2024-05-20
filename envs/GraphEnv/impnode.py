@@ -28,6 +28,7 @@ class ImpnodeEnv(gym.Env):
         self.max_removed_nodes = max_removed_nodes
 
         self.graph = None
+        self.original_graph = None
         self.removed_nodes = None
         self.pos = None
         self.node_action_mask = None
@@ -45,6 +46,7 @@ class ImpnodeEnv(gym.Env):
     def setup(self, ep=0):
 
         self.graph, self.weights = self.gen_graph(ep)
+        self.original_graph = copy.deepcopy(self.graph)
         self.total_weight = sum(self.weights.values())
         # self.pos = nx.spring_layout(self.graph)
         self.graph_len = len(self.graph.nodes)
@@ -91,7 +93,8 @@ class ImpnodeEnv(gym.Env):
 
     def _get_obs(self) -> tuple[Any, dict[Any, Any]]:
         info = {
-            'node_action_mask': self.node_action_mask
+            'node_action_mask': self.node_action_mask,
+            'original_graph': self.original_graph
         }
         return self.graph, info
 
