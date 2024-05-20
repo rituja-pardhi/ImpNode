@@ -11,7 +11,8 @@ def test_loop(env, agent, NUM_TEST_EPS):
         state, info = env.reset(ep)
         while not done:
             mask = info['node_action_mask']
-            action = agent.select_action(state, mask)
+            original_graph = info['original_graph']
+            action = agent.select_action(state, mask, original_graph)
             actions.append(action)
             next_state, reward, done, truncated, _ = env.step(action)
             ep_score += reward
@@ -40,7 +41,8 @@ def test_loop2(env, agent, NUM_TEST_EPS, step_ratio=0.01):
                 n = num_nodes - num_removed_nodes
 
             mask = info['node_action_mask']
-            action_list = agent.select_action(state, mask, n)
+            original_graph = info['original_graph']
+            action_list = agent.select_action(state, mask, original_graph, n)
 
             actions.extend(action_list)
             next_state, reward, done, truncated, _ = env.step(action_list)

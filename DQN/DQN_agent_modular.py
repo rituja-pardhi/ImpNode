@@ -16,7 +16,7 @@ from DQN.model import DQNNet
 from DQN.replay_memory import ReplayMemory
 from DQN import virtual_node
 import torch.optim as optim
-
+from collections import defaultdict
 
 class DQNAgent:
     """
@@ -111,7 +111,7 @@ class DQNAgent:
         self.epsilon -= (self.epsilon_max - self.epsilon_min) / self.epsilon_step
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-    def select_action(self, state, mask, n=1):
+    def select_action(self, state, mask, original_graph, n=1):
         """
         Uses epsilon-greedy exploration such that, if the randomly generated number is less than epsilon then the agent performs random action, else the agent executes the action suggested by the policy Q-network
 
@@ -133,8 +133,10 @@ class DQNAgent:
 
         # pick the action with maximum Q-value as per the policy Q-network
         with torch.no_grad():
+
+            aux_input = self.calculate_aux_input_one(original_graph,mask,state)
             batch_of_state = self.preprocess_graphs([state]).to(self.device)
-            action = self.policy_net.forward(batch_of_state).squeeze(1)
+            action = self.policy_net.forward(batch_of_state, aux_input).squeeze(1)
             action = action.to(self.device)
             mask = torch.tensor(mask).to(self.device)
             indexes = [(mask == 0).nonzero().squeeze().to(self.device)]
@@ -170,8 +172,10 @@ class DQNAgent:
             print('memory less than batch size')
             return
 
-        states, actions, next_states, rewards, dones = self.memory.sample(int(batchsize), self.device)
+        original_graphs, s_masks, ns_masks, states, actions, next_states, rewards, dones = self.memory.sample(int(batchsize), self.device)
 
+        aux_input_states = self.calculate_aux_input(original_graphs, s_masks, states)
+        aux_input_next_states = self.calculate_aux_input(original_graphs, ns_masks, next_states)
         # save graphs without virtual node for graph reconstruction loss
         pyg_states_no_vir = [torch_geometric.utils.from_networkx(graph) for graph in states]
         batch_states_no_vir = torch_geometric.data.Batch.from_data_list(pyg_states_no_vir)
@@ -182,7 +186,7 @@ class DQNAgent:
 
         # all q values from policy network and then get q values of the actions that were taken (as in memory)
         # actions vector has to be explicitly reshaped to nx1-vector
-        all_q_values_policy, embeddings = self.policy_net.forward(batch_states.to(self.device), embedding=True)
+        all_q_values_policy, embeddings = self.policy_net.forward(batch_states.to(self.device), aux_input_states, embedding=True)
 
         all_q_values_policy = all_q_values_policy.squeeze()
         q_values_policy = self.batch_gather(all_q_values_policy, batch_index=adapted_batch_index, dim=1,
@@ -190,7 +194,7 @@ class DQNAgent:
 
         batch_next_states = self.preprocess_graphs(next_states).to(self.device)
         with torch.no_grad():
-            q_target = self.target_net.forward(batch_next_states)
+            q_target = self.target_net.forward(batch_next_states, aux_input_next_states)
 
         values, argmax_indices = self.batch_max(q_target, adapted_batch_index)
         target_max = values.squeeze()
@@ -199,7 +203,7 @@ class DQNAgent:
 
         # calculate the loss as the mean-squared error of td_target and q_values_policy
         self.optimizer.zero_grad()
-        loss = (F.mse_loss(td_target, q_values_policy))
+        loss = F.mse_loss(td_target, q_values_policy, reduction='sum')/batchsize
 
         if self.alpha:
             # graph reconstruction loss
@@ -208,6 +212,91 @@ class DQNAgent:
 
         loss.backward()
         self.optimizer.step()
+        return loss.to('cpu')
+
+    def calculate_aux_input(self, original_graphs, masks, states):
+
+        aux_input = torch.Tensor()
+        aux_ip = torch.Tensor()
+        counter = 0
+        twohop_number = 0
+        node_twohop_counter = defaultdict(int)
+        for i in range(len(original_graphs)):
+            aux = []
+            num_nodes_removed = np.count_nonzero(masks[i] == 0)
+            aux_1 = num_nodes_removed/len(original_graphs[i].nodes)
+            c = np.where(masks[i] == 0)[0]
+
+            for edge in original_graphs[i].edges:
+                if edge[0] in c or edge[1] in c:
+                    counter += 1
+                else:
+                    if edge[0] in node_twohop_counter:
+                        twohop_number += node_twohop_counter[edge[0]]
+                        node_twohop_counter[edge[0]] += 1
+                    else:
+                        node_twohop_counter[edge[0]] = 1
+
+                    if edge[1] in node_twohop_counter:
+                        twohop_number += node_twohop_counter[edge[1]]
+                        node_twohop_counter[edge[1]] += 1
+                    else:
+                        node_twohop_counter[edge[1]] = 1
+            aux_2 = counter/len(original_graphs[i].edges)
+            aux_3 = twohop_number/(len(original_graphs[i].nodes)*len(original_graphs[i].nodes))
+            aux_4 = 1
+
+            aux.append([aux_1, aux_2, aux_3, aux_4])
+            aux1 = torch.tensor(aux)
+
+            mask = torch.tensor(masks[i])
+            mask = mask.unsqueeze(1)
+
+            aux_ip = mask * aux1
+
+            aux_input = torch.cat([aux_input,aux_ip],dim=0)
+        return aux_input.to(self.device)
+    def calculate_aux_input_one(self, original_graph, mask, state):
+        aux = []
+        aux_input = torch.Tensor()
+        aux_ip = torch.Tensor()
+
+        counter = 0
+        twohop_number = 0
+        node_twohop_counter = defaultdict(int)
+
+        num_nodes_removed = np.count_nonzero(mask == 0)
+        aux_1 = num_nodes_removed/len(original_graph.nodes)
+        c = np.where(mask == 0)[0]
+        #c = [(masks[i] == 0).nonzero()]
+
+        for edge in original_graph.edges:
+            if edge[0] in c or edge[1] in c:
+                counter += 1
+            else:
+                if edge[0] in node_twohop_counter:
+                    twohop_number += node_twohop_counter[edge[0]]
+                    node_twohop_counter[edge[0]] += 1
+                else:
+                    node_twohop_counter[edge[0]] = 1
+
+                if edge[1] in node_twohop_counter:
+                    twohop_number += node_twohop_counter[edge[1]]
+                    node_twohop_counter[edge[1]] += 1
+                else:
+                    node_twohop_counter[edge[1]] = 1
+        aux_2 = counter/len(original_graph.edges)
+        aux_3 = twohop_number/(len(original_graph.nodes)*len(original_graph.nodes))
+        aux_4 = 1
+
+        aux.append([aux_1, aux_2, aux_3, aux_4])
+        aux1 = torch.tensor(aux)
+
+        mask = torch.tensor(mask)
+        mask = mask.unsqueeze(1)
+        aux_ip = mask * aux1
+        aux_input = torch.cat([aux_input, aux_ip], dim=0)
+        return aux_input.to(self.device)
 
     def preprocess_graphs(self, graphs, virtual=False):
         """

@@ -41,10 +41,11 @@ class DQNNet(nn.Module):
         self.linear4 = nn.Linear(2 * hidden_size1, hidden_size1)
         self.sum_agg = SumAgg()
         self.linear5 = nn.Linear(hidden_size1 * hidden_size1, hidden_size1)
-        #self.dense1 = nn.Linear(hidden_size1 * hidden_size1, hidden_size2) #cross_product
-        #self.dense1 = nn.Linear(2 * hidden_size1, hidden_size2)
+        # self.dense1 = nn.Linear(hidden_size1 * hidden_size1, hidden_size2) #cross_product
+        # self.dense1 = nn.Linear(2 * hidden_size1, hidden_size2)
         self.dense1 = nn.Linear(hidden_size1, hidden_size2)
-        self.dense2 = nn.Linear(hidden_size2, 1)
+        self.dense2 = nn.Linear(hidden_size2 + 4, 1)
+        #self.dense2 = nn.Linear(hidden_size2, 1)
 
         # self.apply(self._init_weights)
 
@@ -54,7 +55,7 @@ class DQNNet(nn.Module):
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias.data)
 
-    def forward(self, data, embedding=False):
+    def forward(self, data, aux_input, embedding=False):
         x, edge_index = data.x.to(torch.float32), data.edge_index
 
         # x, edge_index, edge_attr = data.x.to(torch.float32), data.edge_index, data.edge_attr.to(torch.float32)
@@ -70,7 +71,6 @@ class DQNNet(nn.Module):
 
             x = x / x.norm(dim=-1, keepdim=True)
 
-
         embed = torch.cat([x[data.batch == i][:-1] for i in range(data.num_graphs)])
         # x = torch.cat([torch.cat(
         #     (x[data.batch == i][:-1], x[data.batch == i][-1].repeat(len(x[data.batch == i]) - 1, 1)), dim=1) for i
@@ -83,6 +83,7 @@ class DQNNet(nn.Module):
 
         x = F.relu(self.dense1(x))
 
+        x = torch.cat([x, aux_input], dim=-1)
         x = self.dense2(x)
         if embedding:
             return x, embed
