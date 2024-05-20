@@ -3,6 +3,7 @@ import numpy as np
 import random
 import torch
 import time
+from tqdm import tqdm
 from pathlib import Path
 from DQN.train_dqn_vm import train_dqn_vm
 import mlflow

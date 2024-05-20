@@ -4,6 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 import csv
 import copy
+from tqdm import tqdm
 
 
 
@@ -17,7 +18,7 @@ def train_dqn_vm(env, agent, results_base_path, num_train_eps, num_mem_fill_eps,
     best_score = -np.inf
 
     start_time = time.time()
-    for ep_cnt in range(num_train_eps):
+    for ep_cnt in tqdm(range(num_train_eps)):
         env.data_path = train_data_path
         state_history, action_history, reward_history, mask_history = [], [], [], []
         done = False
